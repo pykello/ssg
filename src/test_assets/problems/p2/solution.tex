@@ -1,0 +1,30 @@
+\begin{enumerate}
+        \item \textbf{Evenness:}  
+        Compute \( f(-x) \):
+        \[
+        f(-x) = \frac{e^{-x}}{1 + e^{-2x}}.
+        \]
+        Multiply the numerator and denominator by \( e^{2x} \):
+        \[
+        f(-x) = \frac{e^{x}}{e^{2x} + 1} = f(x).
+        \]
+        Thus, \( f(x) \) is even.
+    
+        \item \textbf{Evaluating the Integral:}  
+        Since \( f(x) \) is even, we have:
+        \[
+        I = 2 \int_{0}^{1} f(x) \, dx = 2 \int_{0}^{1} \frac{e^x}{1 + e^{2x}} \, dx.
+        \]
+        Let \( u = e^x \) so that \( du = e^x dx \). When \( x=0 \), \( u=1 \); when \( x=1 \), \( u=e \). Then:
+        \[
+        I = 2 \int_{1}^{e} \frac{1}{1+u^2}\, du.
+        \]
+        Recognizing the integral of \( \frac{1}{1+u^2} \) as \( \arctan(u) \), we obtain:
+        \[
+        I = 2 \left[ \arctan(u) \right]_{1}^{e} = 2 \left( \arctan(e) - \arctan(1) \right).
+        \]
+        Since \( \arctan(1) = \frac{\pi}{4} \), the final answer is:
+        \[
+        I = 2 \left( \arctan(e) - \frac{\pi}{4} \right).
+        \]
+    \end{enumerate}

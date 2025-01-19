@@ -1,0 +1,9 @@
+type: "problem"
+title: "Sample Problem"
+id: "sample-problem-001"
+tags:
+  - sample
+  - yaml
+  - tutorial
+timestamp: "2025-03-06T12:00:00Z"
+image: "figs/blue.png"
