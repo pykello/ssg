@@ -26,9 +26,9 @@ fn default_items_per_page() -> usize {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up command-line argument parsing with clap
-    let matches = Command::new("riazi_cafe_list_generator")
+    let matches = Command::new("ssg-list")
         .version("1.0")
-        .author("Riazi Cafe Team")
+        .author("Hadi Moshayedi")
         .about("Generates paginated list pages from content")
         .arg(
             Arg::new("path")

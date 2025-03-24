@@ -7,9 +7,9 @@ use std::{
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up command-line argument parsing with clap
-    let matches = Command::new("riazi_cafe_generator")
+    let matches = Command::new("ssg-content")
         .version("1.0")
-        .author("Riazi Cafe Team")
+        .author("Hadi Moshayedi")
         .about("Generates HTML files from definitions")
         .arg(
             Arg::new("path")
@@ -75,36 +75,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Compute the output file path based on the path, build directory and content type
 fn compute_output_path(
     path: &Path,
     build_dir: &Path,
     content_dir: &PathBuf,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Determine the relative path based on content_dir if provided
-    let rel_path = if let Ok(rel) = path.strip_prefix(content_dir) {
-        rel.to_path_buf()
-    } else {
-        // If path is not under content_dir, use the path directory name
-        PathBuf::from(
-            path.file_name()
-                .unwrap_or_else(|| std::ffi::OsStr::new("unknown")),
-        )
-    };
+    let cwd = std::env::current_dir()?;
+    let path = cwd.join(path);
+    let content_dir = cwd.join(content_dir);
+    let rel_path = path.strip_prefix(content_dir)?;
 
     // Create output file path that preserves directory structure
     let mut output_file_path = build_dir.join(rel_path);
-
-    // If output_file_path is a directory, append ".html"
-    // Otherwise, replace or add ".html" extension
-    if output_file_path.extension().is_none() {
-        output_file_path.set_extension("html");
-    } else {
-        let file_stem = output_file_path
-            .file_stem()
-            .unwrap_or_else(|| std::ffi::OsStr::new("unknown"));
-        output_file_path.set_file_name(format!("{}.html", file_stem.to_string_lossy()));
-    }
+    output_file_path.set_extension("html");
 
     Ok(output_file_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_output_path_abs() -> Result<(), Box<dyn std::error::Error>> {
+        let content_dir = PathBuf::from("/content");
+        let build_dir = Path::new("/build");
+
+        let path = Path::new("/content/page1.md");
+        let output_path = compute_output_path(path, build_dir, &content_dir)?;
+        assert_eq!(output_path, Path::new("/build/page1.html"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_output_path_rel() -> Result<(), Box<dyn std::error::Error>> {
+        let content_dir = PathBuf::from("content");
+        let build_dir = Path::new("build");
+
+        let path = Path::new("content/subdir/page1.md");
+        let output_path = compute_output_path(path, build_dir, &content_dir)?;
+        assert_eq!(output_path, Path::new("build/subdir/page1.html"));
+
+        Ok(())
+    }
 }
