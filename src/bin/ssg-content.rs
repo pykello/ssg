@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use ssg::utils::{content::Content, images::ImageProcessor, render::Renderer, *};
+use ssg::{config, content::*, render::*};
 use std::{
     fs,
     path::{Path, PathBuf},

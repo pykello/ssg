@@ -6,7 +6,7 @@ use walkdir::WalkDir;
 
 /// Finds all images in the given root directory.
 /// Returns a vector of paths relative to the root.
-pub fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     // Define allowed image extensions (all in lowercase)
     let allowed_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff"];
 
@@ -34,35 +34,8 @@ pub fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     Ok(images)
 }
 
-/// Modifies HTML content by prefixing image URLs with a root URL if they match any of the provided image paths.
-///
-/// # Arguments
-///
-/// * `html` - The HTML content to modify.
-/// * `image_paths` - A list of relative image paths to look for.
-/// * `root_url` - The root URL to prefix matching image paths with.
-///
-/// # Returns
-///
-/// The modified HTML content with prefixed image URLs.
-///
-/// # Example
-///
-/// ```
-/// use std::path::PathBuf;
-/// use riazi_cafe_rs::utils::images::prefix_image_urls;
-///
-/// let html = r#"<img src="figs/image.png" alt="An image"><img src="other.jpg">"#;
-/// let image_paths = vec![PathBuf::from("figs/image.png")];
-/// let root_url = "https://example.com/static/";
-///
-/// let result = prefix_image_urls(html, &image_paths, root_url);
-/// assert_eq!(
-///     result,
-///     r#"<img src="https://example.com/static/figs/image.png" alt="An image"><img src="other.jpg">"#
-/// );
-/// ```
-pub fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> String {
+// Modifies HTML content by prefixing image URLs with a root URL if they match any of the provided image paths.
+fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> String {
     // Create a set of normalized paths for efficient lookup
     let normalized_paths: Vec<String> = image_paths
         .iter()
@@ -101,7 +74,7 @@ pub fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) ->
     html.to_string()
 }
 
-/// Determines if a path in HTML should be prefixed with the root URL.
+// Determines if a path in HTML should be prefixed with the root URL.
 fn should_prefix(path: &str, normalized_paths: &[String]) -> bool {
     // Skip paths that are already absolute URLs or data URLs
     if path.starts_with("http://")
@@ -140,15 +113,6 @@ pub struct ImageProcessor {
 }
 
 impl ImageProcessor {
-    /// Creates a new ImageProcessor for a problem directory.
-    ///
-    /// # Arguments
-    /// * `problem_path` - Path to the problem directory
-    /// * `content_dir` - Base content directory
-    /// * `build_dir` - Build output directory
-    ///
-    /// # Returns
-    /// A new ImageProcessor instance
     pub fn new(
         problem_path: PathBuf,
         content_dir: PathBuf,

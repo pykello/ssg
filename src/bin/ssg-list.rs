@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use ssg::utils::{content_metadata::*, *};
+use ssg::{config, content::*, render::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .language
         .clone()
         .unwrap_or_else(|| "en".to_string());
-    let renderer = render::Renderer::new(&config, language);
+    let renderer = Renderer::new(&config, language);
 
     let parent_dir = index_yaml_path.parent().unwrap();
     let output_base_dir = if let Ok(rel) = parent_dir.strip_prefix(&config.content_dir) {

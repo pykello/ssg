@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use tera::{Context, Function, Tera, Value};
 
-use super::config::Config;
+use crate::config;
 
 pub struct Renderer {
     tera: Tera,
@@ -13,7 +13,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(config: &Config, language: String) -> Self {
+    pub fn new(config: &config::Config, language: String) -> Self {
         let templates_path = config.template_dir.join("**/*.html");
         let mut tera = match Tera::new(&templates_path.to_string_lossy()) {
             Ok(t) => t,

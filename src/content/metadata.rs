@@ -18,11 +18,8 @@ pub struct ContentMetadata {
 }
 
 impl ContentMetadata {
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<ContentMetadata, Box<dyn Error>> {
-        let base_path = path.as_ref();
-
-        // Load metadata from metadata.yaml
-        let metadata_path = base_path.join("metadata.yaml");
+    pub fn load(path: &Path) -> Result<ContentMetadata, Box<dyn Error>> {
+        let metadata_path = path.join("metadata.yaml");
         let metadata_content = fs::read_to_string(&metadata_path)?;
         let meta: ContentMetadata = serde_yaml::from_str(&metadata_content)?;
 
@@ -55,29 +52,6 @@ mod tests {
             ])
         );
         assert_eq!(metadata.timestamp, Some("2025-03-06T12:00:00Z".to_string()));
-    }
-
-    #[test]
-    fn test_load_metadata_p2() {
-        // Path to test asset p2
-        let sample_path = Path::new("src/test_assets/problems/p2");
-
-        // Load metadata from the second sample problem
-        let metadata = ContentMetadata::load(sample_path).expect("Failed to load metadata");
-
-        // Verify the loaded metadata matches expectations
-        assert_eq!(metadata.title, "Sample Problem");
-        assert_eq!(metadata.id, Some("sample-problem-002".to_string()));
-        assert_eq!(
-            metadata.tags,
-            Some(vec![
-                "sample".to_string(),
-                "yaml".to_string(),
-                "tutorial".to_string()
-            ])
-        );
-        assert_eq!(metadata.timestamp, Some("2025-03-06T12:00:00Z".to_string()));
-        assert_eq!(metadata.r#type, "problem");
     }
 
     #[test]

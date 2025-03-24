@@ -1,17 +1,15 @@
 use super::content::Content;
-use super::content_metadata::*;
-use crate::utils::formatted_text::FormattedText;
+use super::metadata::*;
+use crate::formatted_text::FormattedText;
 use regex::Regex;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Loads a Problem from the given directory path.
 pub fn load_problem(
     base_path: &Path,
     metadata: ContentMetadata,
 ) -> Result<Content, Box<dyn Error>> {
-    // Load problem file: try problem.tex then problem.md
     let problem = {
         let problem_tex = base_path.join("problem.tex");
         let problem_md = base_path.join("problem.md");
@@ -24,14 +22,12 @@ pub fn load_problem(
         }
     };
 
-    // Load solutions and hints (files may have a numeric suffix).
     let solutions = load_multiple_files(base_path, "solution")?;
     let hints = load_multiple_files(base_path, "hint")?;
 
     Ok(Content::Problem(metadata, problem, solutions, hints))
 }
 
-/// Reads a file and wraps its contents as FormattedText based on the extension.
 fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
     let content = fs::read_to_string(file_path)?;
     match file_path.extension().and_then(|s| s.to_str()) {
@@ -41,8 +37,8 @@ fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>
     }
 }
 
-/// Loads multiple files (e.g., for solutions or hints) that match the pattern:
-/// basename[.number].(tex|md)
+// Loads multiple files (e.g., for solutions or hints) that match the pattern:
+// basename[.number].(tex|md)
 fn load_multiple_files(
     base_path: &Path,
     basename: &str,
