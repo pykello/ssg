@@ -1,4 +1,6 @@
 use crate::content::Content;
+use serde_json::json;
+use std::collections::HashMap;
 use std::error::Error;
 
 impl Content {
@@ -19,10 +21,6 @@ impl Content {
                     solutions.iter().filter_map(|s| s.to_html().ok()).collect();
                 let hint_htmls: Vec<String> =
                     hints.iter().filter_map(|h| h.to_html().ok()).collect();
-
-                // Create a context for the template
-                use serde_json::json;
-                use std::collections::HashMap;
 
                 let mut context = HashMap::new();
                 context.insert(
@@ -45,13 +43,7 @@ impl Content {
                     .map_err(|e| e.into())
             }
             Content::Blog { metadata, body } => {
-                // Convert body to HTML
                 let body_html = body.to_html()?;
-
-                // Create a context for the template
-                use serde_json::json;
-                use std::collections::HashMap;
-
                 let mut context = HashMap::new();
                 context.insert(
                     "blog".to_string(),
@@ -68,13 +60,7 @@ impl Content {
                 renderer.render("blog.html", context).map_err(|e| e.into())
             }
             Content::Page { metadata, body } => {
-                // Convert body to HTML
                 let body_html = body.to_html()?;
-
-                // Create a context for the template
-                use serde_json::json;
-                use std::collections::HashMap;
-
                 let mut context = HashMap::new();
                 context.insert(
                     "page".to_string(),

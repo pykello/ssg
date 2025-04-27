@@ -7,12 +7,10 @@ use walkdir::WalkDir;
 /// Finds all images in the given root directory.
 /// Returns a vector of paths relative to the root.
 fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    // Define allowed image extensions (all in lowercase)
     let allowed_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff"];
 
     let mut images = Vec::new();
 
-    // Walk through the directory tree recursively.
     for entry in WalkDir::new(root) {
         let entry = entry?;
         if entry.file_type().is_file() {
@@ -102,10 +100,10 @@ fn normalize_path<P: AsRef<Path>>(path: P) -> String {
     path_str.replace('\\', "/")
 }
 
-/// A class that manages images within a problem directory and handles
+/// A class that manages images within a content directory and handles
 /// copying them to the build directory and updating HTML content.
 pub struct ImageProcessor {
-    problem_path: PathBuf,
+    path: PathBuf,
     content_dir: PathBuf,
     build_dir: PathBuf,
     images: Vec<PathBuf>,
@@ -114,14 +112,14 @@ pub struct ImageProcessor {
 
 impl ImageProcessor {
     pub fn new(
-        problem_path: PathBuf,
+        path: PathBuf,
         content_dir: PathBuf,
         build_dir: PathBuf,
     ) -> Result<Self, Box<dyn Error>> {
-        let images = find_images(&problem_path)?;
+        let images = find_images(&path)?;
 
         Ok(Self {
-            problem_path,
+            path,
             content_dir,
             build_dir,
             images,
@@ -129,7 +127,7 @@ impl ImageProcessor {
         })
     }
 
-    /// Checks if any images were found in the problem directory
+    /// Checks if any images were found in the content directory
     pub fn has_images(&self) -> bool {
         !self.images.is_empty()
     }
@@ -146,8 +144,8 @@ impl ImageProcessor {
             return Ok(());
         }
 
-        // Create the relative path for this problem
-        let rel_path = self.problem_path.strip_prefix(&self.content_dir)?;
+        // Create the relative path for this content
+        let rel_path = self.path.strip_prefix(&self.content_dir)?;
         let static_assets_dir = self.build_dir.join("static/assets").join(rel_path);
 
         // Ensure the target directory exists
@@ -155,7 +153,7 @@ impl ImageProcessor {
 
         // Copy each image to the build directory
         for image in &self.images {
-            let source_path = self.problem_path.join(image);
+            let source_path = self.path.join(image);
             let target_path = static_assets_dir.join(image);
 
             // Create directory if it doesn't exist
@@ -167,7 +165,7 @@ impl ImageProcessor {
             fs::copy(&source_path, &target_path)?;
         }
 
-        // Set the URL prefix for this problem
+        // Set the URL prefix for this content
         self.url_prefix = Some(format!("/static/assets/{}/", rel_path.display()));
 
         Ok(())
@@ -286,12 +284,11 @@ mod tests {
 
         // Path to test assets
         let content_dir = PathBuf::from("src");
-        let problem_path = PathBuf::from("src/test_assets/problems/p1");
+        let path = PathBuf::from("src/test_assets/problems/p1");
 
         // Create an image processor
         let mut processor =
-            ImageProcessor::new(problem_path.clone(), content_dir.clone(), build_dir.clone())
-                .unwrap();
+            ImageProcessor::new(path.clone(), content_dir.clone(), build_dir.clone()).unwrap();
 
         // Check if images were found
         assert!(processor.has_images());
@@ -301,7 +298,7 @@ mod tests {
         processor.copy_images_to_build_dir().unwrap();
 
         // Verify images were copied
-        let rel_path = problem_path.strip_prefix(&content_dir).unwrap();
+        let rel_path = path.strip_prefix(&content_dir).unwrap();
         let static_assets_dir = build_dir.join("static/assets").join(rel_path);
         assert!(static_assets_dir.join("figs/blue.png").exists());
 
