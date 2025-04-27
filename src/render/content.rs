@@ -2,7 +2,7 @@ use crate::content::Content;
 use std::error::Error;
 
 impl Content {
-   pub fn render_html(
+    pub fn render_html(
         &self,
         renderer: &crate::render::Renderer,
     ) -> Result<String, Box<dyn Error>> {

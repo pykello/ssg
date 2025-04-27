@@ -1,5 +1,5 @@
-mod render;
-mod images;
 mod content;
-pub use render::Renderer;
+mod images;
+mod render;
 pub use images::ImageProcessor;
+pub use render::Renderer;

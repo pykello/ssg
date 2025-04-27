@@ -1,7 +1,7 @@
 use clap::{Arg, Command};
-use ssg::{config, content::*, render::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ssg::{config, content::*, render::*};
 use std::{
     collections::HashMap,
     fs,

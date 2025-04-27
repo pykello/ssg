@@ -53,7 +53,11 @@ impl Renderer {
             }
         }
 
-        Self { tera, language, default_context }
+        Self {
+            tera,
+            language,
+            default_context,
+        }
     }
 
     pub fn render(

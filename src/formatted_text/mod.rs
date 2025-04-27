@@ -1,5 +1,5 @@
 mod formatted_text;
-mod shell;
 mod pandoc_latex_filters;
+mod shell;
 
 pub use formatted_text::FormattedText;
