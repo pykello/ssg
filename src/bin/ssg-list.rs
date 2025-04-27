@@ -16,12 +16,6 @@ struct IndexConfig {
     content_type: ContentKind,
     language: Option<String>,
     path: Option<String>,
-    #[serde(rename = "items-per-page", default = "default_items_per_page")]
-    items_per_page: usize,
-}
-
-fn default_items_per_page() -> usize {
-    50
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,7 +67,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         config.build_dir.join(parent_dir.to_path_buf())
     };
-    fs::create_dir_all(&output_base_dir)?;
 
     println!("Base content path: {}", output_base_dir.display());
 
@@ -93,76 +86,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Found {} content items", content_items.len());
 
-    // Calculate number of pages needed
-    let total_items = content_items.len();
-    let items_per_page = index_config.items_per_page;
-    let total_pages = (total_items + items_per_page - 1) / items_per_page;
-
-    println!(
-        "Creating {} pages with {} items per page",
-        total_pages, items_per_page
-    );
-
     fs::create_dir_all(&output_base_dir)?;
 
-    // Generate the paginated index pages
-    for page_num in 1..=total_pages {
-        let start = (page_num - 1) * items_per_page;
-        let end = std::cmp::min(start + items_per_page, total_items);
-        let page_items = &content_items[start..end];
 
-        let page_filename = if page_num == 1 {
-            "index.html".to_string()
-        } else {
-            format!("index_p{}.html", page_num)
-        };
+    let page_filename = "index.html".to_string();
+    let output_path = output_base_dir.join(&page_filename);
 
-        let output_path = output_base_dir.join(&page_filename);
+    // Create context for rendering
+    let mut context = HashMap::new();
+    context.insert(
+        "title".to_string(),
+        Value::String(index_config.title.clone()),
+    );
 
-        // Create context for rendering
-        let mut context = HashMap::new();
-        context.insert(
-            "title".to_string(),
-            Value::String(index_config.title.clone()),
-        );
+    // Convert content items to serializable format
+    let serializable_items: Vec<Value> = content_items
+        .iter()
+        .map(|item| {
+            let mut obj = serde_json::Map::new();
+            obj.insert("title".to_string(), Value::String(item.title.clone()));
+            obj.insert(
+                "url".to_string(),
+                Value::String(format!("{}.html", "url".to_string())),
+            );
+            Value::Object(obj)
+        })
+        .collect();
 
-        // Convert content items to serializable format
-        let serializable_items: Vec<Value> = page_items
-            .iter()
-            .map(|item| {
-                let mut obj = serde_json::Map::new();
-                obj.insert("title".to_string(), Value::String(item.title.clone()));
-                obj.insert(
-                    "url".to_string(),
-                    Value::String(format!("{}.html", "url".to_string())),
-                );
-                Value::Object(obj)
-            })
-            .collect();
+    context.insert(
+        "content_items".to_string(),
+        Value::Array(serializable_items),
+    );
 
-        context.insert(
-            "content_items".to_string(),
-            Value::Array(serializable_items),
-        );
-        context.insert("current_page".to_string(), Value::Number(page_num.into()));
-        context.insert("total_pages".to_string(), Value::Number(total_pages.into()));
-        context.insert("has_prev".to_string(), Value::Bool(page_num > 1));
-        context.insert("has_next".to_string(), Value::Bool(page_num < total_pages));
-        context.insert(
-            "prev_page".to_string(),
-            Value::Number((page_num - 1).into()),
-        );
-        context.insert(
-            "next_page".to_string(),
-            Value::Number((page_num + 1).into()),
-        );
+    let html = renderer.render("list.html", context)?;
 
-        // Use render function from render.rs
-        let html = renderer.render("list.html", context)?;
-
-        println!("Writing page {} to: {}", page_num, output_path.display());
-        fs::write(output_path, html)?;
-    }
+    fs::write(output_path, html)?;
 
     println!("List generation completed successfully!");
     Ok(())
