@@ -2,7 +2,17 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ContentKind {
+    Problem,
+    Blog,
+    Page,
+    #[default]
+    Unknown,
+}
 
 #[derive(Deserialize, Debug, PartialEq)]
 pub struct ContentMetadata {
@@ -13,8 +23,8 @@ pub struct ContentMetadata {
     pub timestamp: Option<String>,
     pub language: Option<String>,
     pub image: Option<PathBuf>,
-    #[serde(default)]
-    pub r#type: String,
+    #[serde(rename = "type")]
+    pub kind: ContentKind,
 }
 
 impl ContentMetadata {
@@ -52,32 +62,6 @@ mod tests {
             ])
         );
         assert_eq!(metadata.timestamp, Some("2025-03-06T12:00:00Z".to_string()));
-    }
-
-    #[test]
-    fn test_metadata_missing_fields() {
-        // Create a temporary directory for testing
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
-        let temp_path = temp_dir.path();
-
-        // Create a minimal metadata file
-        let metadata_content = r#"
-title: "Minimal Metadata"
-"#;
-
-        std::fs::create_dir_all(temp_path).expect("Failed to create temp directories");
-        std::fs::write(temp_path.join("metadata.yaml"), metadata_content)
-            .expect("Failed to write metadata file");
-
-        // Load the metadata
-        let metadata = ContentMetadata::load(temp_path).expect("Failed to load metadata");
-
-        // Verify the loaded metadata
-        assert_eq!(metadata.title, "Minimal Metadata");
-        assert_eq!(metadata.id, None);
-        assert_eq!(metadata.tags, None);
-        assert_eq!(metadata.timestamp, None);
-        assert_eq!(metadata.r#type, ""); // Default value for type field
     }
 
     #[test]

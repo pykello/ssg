@@ -1,45 +1,55 @@
-use super::metadata::ContentMetadata;
+use super::metadata::{ContentKind, ContentMetadata};
 use crate::formatted_text::FormattedText;
 use std::error::Error;
 use std::path::Path;
 
 #[derive(Debug)]
 pub enum Content {
-    Problem(
-        ContentMetadata,
-        FormattedText,
-        Vec<FormattedText>,
-        Vec<FormattedText>,
-    ),
-    Blog(ContentMetadata, FormattedText),
-    Page(ContentMetadata, FormattedText),
+    Problem {
+        metadata: ContentMetadata,
+        statement: FormattedText,
+        solutions: Vec<FormattedText>,
+        hints: Vec<FormattedText>,
+    },
+    Blog {
+        metadata: ContentMetadata,
+        body: FormattedText,
+    },
+    Page {
+        metadata: ContentMetadata,
+        body: FormattedText,
+    },
 }
 
 impl Content {
-    pub fn content_type(&self) -> &'static str {
-        match self {
-            Content::Problem(_, _, _, _) => "problem",
-            Content::Blog(_, _) => "blog",
-            Content::Page(_, _) => "page",
-        }
-    }
-
     // Factory function to load content based on type
     pub fn load(path: &Path) -> Result<Content, Box<dyn Error>> {
         let metadata = ContentMetadata::load(path)?;
-        match metadata.r#type.as_str() {
-            "problem" => super::problem::load_problem(path, metadata),
-            "blog" => load_single_content_file(path, metadata, "body", Content::Blog),
-            "page" => load_single_content_file(path, metadata, "content", Content::Page),
-            _ => Err(format!("Unknown content type: {}", metadata.r#type).into()),
+
+        match metadata.kind {
+            ContentKind::Problem => super::problem::load_problem(path, metadata),
+            ContentKind::Blog => {
+                load_single_content_file(path, metadata, "body", |metadata, body| Content::Blog {
+                    metadata,
+                    body,
+                })
+            }
+            ContentKind::Page => {
+                load_single_content_file(path, metadata, "content", |metadata, body| {
+                    Content::Page { metadata, body }
+                })
+            }
+            ContentKind::Unknown => {
+                Err(format!("Unknown content type: {:?}", metadata.kind).into())
+            }
         }
     }
 
     pub fn metadata(&self) -> &ContentMetadata {
         match self {
-            Content::Problem(metadata, _, _, _) => metadata,
-            Content::Blog(metadata, _) => metadata,
-            Content::Page(metadata, _) => metadata,
+            Content::Problem { metadata, .. } => metadata,
+            Content::Blog { metadata, .. } => metadata,
+            Content::Page { metadata, .. } => metadata,
         }
     }
 }
@@ -106,7 +116,7 @@ id: "test-page"
         let content = Content::load(temp_path).unwrap();
 
         // Check that it loaded as a Page type
-        assert_eq!(content.content_type(), "page");
+        assert!(matches!(content, Content::Page { .. }));
 
         // Verify metadata
         let metadata = content.metadata();
@@ -114,7 +124,7 @@ id: "test-page"
         assert_eq!(metadata.id, Some("test-page".to_string()));
 
         // Verify content by rendering to HTML
-        if let Content::Page(_, body) = content {
+        if let Content::Page { body, .. } = content {
             let html = body.to_html().unwrap();
             assert!(html.contains("<h1"));
             assert!(html.contains("Test Page Content"));

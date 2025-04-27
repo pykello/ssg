@@ -7,9 +7,14 @@ impl Content {
         renderer: &crate::render::Renderer,
     ) -> Result<String, Box<dyn Error>> {
         match self {
-            Content::Problem(metadata, problem, solutions, hints) => {
+            Content::Problem {
+                metadata,
+                statement,
+                solutions,
+                hints,
+            } => {
                 // Convert FormattedText to HTML strings
-                let problem_html = problem.to_html()?;
+                let problem_html = statement.to_html()?;
                 let solution_htmls: Vec<String> =
                     solutions.iter().filter_map(|s| s.to_html().ok()).collect();
                 let hint_htmls: Vec<String> =
@@ -39,7 +44,7 @@ impl Content {
                     .render("problem.html", context)
                     .map_err(|e| e.into())
             }
-            Content::Blog(metadata, body) => {
+            Content::Blog { metadata, body } => {
                 // Convert body to HTML
                 let body_html = body.to_html()?;
 
@@ -62,7 +67,7 @@ impl Content {
                 // Render the blog template
                 renderer.render("blog.html", context).map_err(|e| e.into())
             }
-            Content::Page(metadata, body) => {
+            Content::Page { metadata, body } => {
                 // Convert body to HTML
                 let body_html = body.to_html()?;
 

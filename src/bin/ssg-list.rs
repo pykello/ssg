@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 struct IndexConfig {
     title: String,
     #[serde(rename = "content-type")]
-    content_type: String,
+    content_type: ContentKind,
     language: Option<String>,
     path: Option<String>,
     #[serde(rename = "items-per-page", default = "default_items_per_page")]
@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Base content path: {}", output_base_dir.display());
 
     // Find all content files of the specified type recursively
-    let mut content_items = find_content_files(&parent_dir, &index_config.content_type)?;
+    let mut content_items = find_content_files(&parent_dir, index_config.content_type)?;
 
     // Sort content by date (newest first) or title if date is not available
     content_items.sort_by(|a, b| {
@@ -171,7 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Function to find all content files of a specified type in a directory recursively
 fn find_content_files(
     base_path: &Path,
-    content_type: &str,
+    content_type: ContentKind,
 ) -> Result<Vec<ContentMetadata>, Box<dyn std::error::Error>> {
     let mut content_items = Vec::new();
 
@@ -186,7 +186,7 @@ fn find_content_files(
         // Try to load the content
         match ContentMetadata::load(path.parent().unwrap()) {
             Ok(metadata) => {
-                if metadata.r#type == content_type {
+                if metadata.kind == content_type {
                     content_items.push(metadata);
                 }
             }

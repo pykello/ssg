@@ -5,4 +5,4 @@ mod metadata;
 mod problem;
 
 pub use content::Content;
-pub use metadata::ContentMetadata;
+pub use metadata::{ContentKind, ContentMetadata};

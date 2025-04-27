@@ -25,7 +25,12 @@ pub fn load_problem(
     let solutions = load_multiple_files(base_path, "solution")?;
     let hints = load_multiple_files(base_path, "hint")?;
 
-    Ok(Content::Problem(metadata, problem, solutions, hints))
+    Ok(Content::Problem {
+        metadata: metadata,
+        statement: problem,
+        solutions: solutions,
+        hints: hints,
+    })
 }
 
 fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
@@ -90,16 +95,22 @@ mod tests {
         let content = load_problem(path, metadata).expect("Failed to load problem");
 
         // Check the content type
-        assert_eq!(content.content_type(), "problem");
+        assert!(matches!(content, Content::Problem { .. }));
 
         // Check problem details
-        if let Content::Problem(meta, problem, solutions, hints) = content {
+        if let Content::Problem {
+            metadata,
+            statement,
+            solutions,
+            hints,
+        } = content
+        {
             // Verify metadata
-            assert_eq!(meta.title, "Sample Problem");
-            assert_eq!(meta.id, Some("sample-problem-001".to_string()));
+            assert_eq!(metadata.title, "Sample Problem");
+            assert_eq!(metadata.id, Some("sample-problem-001".to_string()));
 
             // Verify problem content
-            let problem_html = problem
+            let problem_html = statement
                 .to_html()
                 .expect("Failed to convert problem to HTML");
             assert_eq!(problem_html, "<p>Problem Body</p>\n");
