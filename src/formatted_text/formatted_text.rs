@@ -13,8 +13,18 @@ pub enum FormattedText {
 
 impl FormattedText {
     pub fn to_html(&self) -> Result<String, String> {
+        let theorems = vec![
+            ("theorem".to_string(), "Theorem".to_string()),
+            ("lemma".to_string(), "Lemma".to_string()),
+            ("corollary".to_string(), "Corollary".to_string()),
+            ("proposition".to_string(), "Proposition".to_string()),
+            ("proof".to_string(), "Proof".to_string()),
+            ("example".to_string(), "Example".to_string()),
+            ("definition".to_string(), "Definition".to_string()),
+            ("remark".to_string(), "Remark".to_string()),
+        ];
         match self {
-            FormattedText::Latex(s) => latex_to_html(s, vec![]),
+            FormattedText::Latex(s) => latex_to_html(s, theorems),
             FormattedText::Markdown(s) => markdown_to_html(s),
         }
     }
