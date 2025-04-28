@@ -75,7 +75,7 @@ impl PandocFilter for EnvFilter {
                     if theorem.numbered {
                         theorem_counter += 1;
                     }
-                    result.push_str(&format!("\\textbf{{{}}}: ", theorem.label(theorem_counter)));
+                    result.push_str(&format!("\\textbf{{{}}}. ", theorem.label(theorem_counter)));
                 } else if env_name == "equation" {
                     result.push_str(r"$$\begin{equation}");
                 } else if env_name == "problem" || env_name == "solution" {
