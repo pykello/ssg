@@ -4,6 +4,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::Config;
+
+use super::content::{content_output_path, content_url};
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ContentKind {
@@ -25,13 +29,20 @@ pub struct ContentMetadata {
     pub image: Option<PathBuf>,
     #[serde(rename = "type")]
     pub kind: ContentKind,
+
+    #[serde(skip_deserializing, default)]
+    pub output_path: PathBuf,
+    #[serde(skip_deserializing, default)]
+    pub url: String,
 }
 
 impl ContentMetadata {
-    pub fn load(path: &Path) -> Result<ContentMetadata, Box<dyn Error>> {
-        let metadata_path = path.join("metadata.yaml");
-        let metadata_content = fs::read_to_string(&metadata_path)?;
-        let meta: ContentMetadata = serde_yaml::from_str(&metadata_content)?;
+    pub fn load(path: &Path, config: &Config) -> Result<ContentMetadata, Box<dyn Error>> {
+        let yaml = fs::read_to_string(path.join("metadata.yaml"))?;
+        let mut meta: Self = serde_yaml::from_str(&yaml)?;
+
+        meta.output_path = content_output_path(path, config)?;
+        meta.url = content_url(path, config)?;
 
         Ok(meta)
     }
@@ -39,6 +50,7 @@ impl ContentMetadata {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test::get_test_config;
     use super::*;
     use std::path::Path;
 
@@ -48,7 +60,8 @@ mod tests {
         let sample_path = Path::new("src/test_assets/problems/p1");
 
         // Load metadata from the sample problem
-        let metadata = ContentMetadata::load(sample_path).expect("Failed to load metadata");
+        let metadata = ContentMetadata::load(sample_path, &get_test_config())
+            .expect("Failed to load metadata");
 
         // Verify the loaded metadata matches expectations
         assert_eq!(metadata.title, "Sample Problem");
@@ -70,7 +83,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
 
         // Attempt to load metadata from a directory without a metadata.yaml file
-        let result = ContentMetadata::load(temp_dir.path());
+        let result = ContentMetadata::load(temp_dir.path(), &get_test_config());
 
         // Verify that the function returns an error
         assert!(result.is_err());

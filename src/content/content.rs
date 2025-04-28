@@ -1,7 +1,8 @@
 use super::metadata::{ContentKind, ContentMetadata};
+use crate::config::Config;
 use crate::formatted_text::FormattedText;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub enum Content {
@@ -23,8 +24,8 @@ pub enum Content {
 
 impl Content {
     // Factory function to load content based on type
-    pub fn load(path: &Path) -> Result<Content, Box<dyn Error>> {
-        let metadata = ContentMetadata::load(path)?;
+    pub fn load(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
+        let metadata = ContentMetadata::load(path, config)?;
 
         match metadata.kind {
             ContentKind::Problem => super::problem::load_problem(path, metadata),
@@ -82,6 +83,42 @@ where
     Ok(constructor(metadata, content))
 }
 
+pub fn content_output_path(
+    path: &Path,
+    config: &Config,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let cwd = std::env::current_dir()?;
+    let path = cwd.join(path);
+    let content_dir = cwd.join(&config.content_dir);
+    let rel_path = path.strip_prefix(content_dir.clone()).map_err(|_e| {
+        format!(
+            "Path {} is not a subpath of content directory {}",
+            path.display(),
+            content_dir.display()
+        )
+    })?;
+
+    // Create output file path that preserves directory structure
+    let mut output_file_path = config.build_dir.join(rel_path);
+    output_file_path.set_extension("html");
+
+    Ok(output_file_path)
+}
+
+pub fn content_url(path: &Path, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
+    let output_path = content_output_path(path, config)?;
+    let rel_path = output_path.strip_prefix(&config.build_dir).map_err(|_e| {
+        format!(
+            "Path {} is not a subpath of build directory {}",
+            output_path.display(),
+            config.build_dir.display()
+        )
+    })?;
+    let url = rel_path.to_string_lossy().to_string();
+    let url = url.replace("\\", "/"); // Normalize path separators for URLs
+    Ok(format!("/{}", url))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,10 +126,18 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_load_page_content() {
+    fn test_load_page_content() -> Result<(), Box<dyn std::error::Error>> {
         // Create a temporary test directory with page content
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new()?;
         let temp_path = temp_dir.path();
+
+        let config = Config {
+            content_dir: PathBuf::from("/tmp"),
+            build_dir: PathBuf::from("/tmp/build"),
+            template_dir: PathBuf::from("/tmp/templates"),
+            translation_dir: None,
+            context: None,
+        };
 
         // Create metadata.yaml
         fs::write(
@@ -113,7 +158,7 @@ id: "test-page"
         .unwrap();
 
         // Load the page content
-        let content = Content::load(temp_path).unwrap();
+        let content = Content::load(temp_path, &config)?;
 
         // Check that it loaded as a Page type
         assert!(matches!(content, Content::Page { .. }));
@@ -132,5 +177,58 @@ id: "test-page"
         } else {
             panic!("Expected Page content type");
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_content_output_path_abs() -> Result<(), Box<dyn std::error::Error>> {
+        let conf = Config {
+            content_dir: PathBuf::from("/content"),
+            build_dir: PathBuf::from("/build"),
+            template_dir: PathBuf::from("/templates"),
+            translation_dir: None,
+            context: None,
+        };
+
+        let path = Path::new("/content/page1.md");
+        let output_path = content_output_path(path, &conf)?;
+        assert_eq!(output_path, Path::new("/build/page1.html"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_content_output_path_rel() -> Result<(), Box<dyn std::error::Error>> {
+        let conf = Config {
+            content_dir: PathBuf::from("content"),
+            build_dir: PathBuf::from("build"),
+            template_dir: PathBuf::from("/templates"),
+            translation_dir: None,
+            context: None,
+        };
+
+        let path = Path::new("content/subdir/page1.md");
+        let output_path = content_output_path(path, &conf)?;
+        assert_eq!(output_path, Path::new("build/subdir/page1.html"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_content_url() -> Result<(), Box<dyn std::error::Error>> {
+        let conf = Config {
+            content_dir: PathBuf::from("content"),
+            build_dir: PathBuf::from("build"),
+            template_dir: PathBuf::from("/templates"),
+            translation_dir: None,
+            context: None,
+        };
+
+        let path = Path::new("content/subdir/page1.md");
+        let url = content_url(path, &conf)?;
+        assert_eq!(url, "/subdir/page1.html");
+
+        Ok(())
     }
 }

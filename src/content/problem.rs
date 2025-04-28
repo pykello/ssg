@@ -81,6 +81,9 @@ fn load_multiple_files(
 
 #[cfg(test)]
 mod tests {
+    use crate::config::Config;
+
+    use super::super::test::get_test_config;
     use super::*;
     use std::path::Path;
 
@@ -89,7 +92,8 @@ mod tests {
         let path = Path::new("src/test_assets/problems/p1");
 
         // First load metadata
-        let metadata = ContentMetadata::load(path).expect("Failed to load metadata");
+        let metadata =
+            ContentMetadata::load(path, &get_test_config()).expect("Failed to load metadata");
 
         // Then load the full problem using that metadata
         let content = load_problem(path, metadata).expect("Failed to load problem");
@@ -137,6 +141,14 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let temp_path = temp_dir.path();
 
+        let config = Config {
+            content_dir: PathBuf::from("/tmp"),
+            build_dir: PathBuf::from("/tmp/build"),
+            template_dir: PathBuf::from("/tmp/templates"),
+            translation_dir: None,
+            context: None,
+        };
+
         // Create metadata.yaml
         let metadata_content = r#"
 title: "Test Problem"
@@ -148,7 +160,7 @@ type: "problem"
             .expect("Failed to write metadata file");
 
         // Load metadata
-        let metadata = ContentMetadata::load(temp_path).expect("Failed to load metadata");
+        let metadata = ContentMetadata::load(temp_path, &config).expect("Failed to load metadata");
 
         // Try to load problem - should fail because there's no problem file
         let result = load_problem(temp_path, metadata);

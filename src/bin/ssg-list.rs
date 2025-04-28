@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Base content path: {}", output_base_dir.display());
 
     // Find all content files of the specified type recursively
-    let mut content_items = find_content_files(&parent_dir, index_config.content_type)?;
+    let mut content_items = find_content_files(&parent_dir, index_config.content_type, &config)?;
 
     // Sort content by date (newest first) or title if date is not available
     content_items.sort_by(|a, b| {
@@ -87,7 +87,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Found {} content items", content_items.len());
 
     fs::create_dir_all(&output_base_dir)?;
-
 
     let page_filename = "index.html".to_string();
     let output_path = output_base_dir.join(&page_filename);
@@ -130,6 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn find_content_files(
     base_path: &Path,
     content_type: ContentKind,
+    config: &config::Config,
 ) -> Result<Vec<ContentMetadata>, Box<dyn std::error::Error>> {
     let mut content_items = Vec::new();
 
@@ -142,7 +142,7 @@ fn find_content_files(
         }
 
         // Try to load the content
-        match ContentMetadata::load(path.parent().unwrap()) {
+        match ContentMetadata::load(path.parent().unwrap(), config) {
             Ok(metadata) => {
                 if metadata.kind == content_type {
                     content_items.push(metadata);
