@@ -99,17 +99,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Convert content items to serializable format
-    let serializable_items: Vec<Value> = content_items
+    let serializable_items: Vec<_> = content_items
         .iter()
-        .map(|item| {
-            let mut obj = serde_json::Map::new();
-            obj.insert("title".to_string(), Value::String(item.title.clone()));
-            obj.insert(
-                "url".to_string(),
-                Value::String(item.url.clone()),
-            );
-            Value::Object(obj)
-        })
+        .map(|item| serde_json::to_value(item).unwrap())
         .collect();
 
     context.insert(
