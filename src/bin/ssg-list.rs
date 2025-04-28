@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             obj.insert("title".to_string(), Value::String(item.title.clone()));
             obj.insert(
                 "url".to_string(),
-                Value::String(format!("{}.html", "url".to_string())),
+                Value::String(item.url.clone()),
             );
             Value::Object(obj)
         })
