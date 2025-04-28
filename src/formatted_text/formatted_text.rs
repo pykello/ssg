@@ -11,17 +11,65 @@ pub enum FormattedText {
     Markdown(String),
 }
 
+pub struct Theorem {
+    pub name: String,
+    pub label: String,
+    pub numbered: bool,
+}
+
+impl Theorem {
+    pub fn label(&self, counter: usize) -> String {
+        if self.numbered {
+            format!("{} {}", self.label, counter)
+        } else {
+            self.label.clone()
+        }
+    }
+}
+
 impl FormattedText {
     pub fn to_html(&self) -> Result<String, String> {
         let theorems = vec![
-            ("theorem".to_string(), "Theorem".to_string()),
-            ("lemma".to_string(), "Lemma".to_string()),
-            ("corollary".to_string(), "Corollary".to_string()),
-            ("proposition".to_string(), "Proposition".to_string()),
-            ("proof".to_string(), "Proof".to_string()),
-            ("example".to_string(), "Example".to_string()),
-            ("definition".to_string(), "Definition".to_string()),
-            ("remark".to_string(), "Remark".to_string()),
+            Theorem {
+                name: "theorem".to_string(),
+                label: "Theorem".to_string(),
+                numbered: true,
+            },
+            Theorem {
+                name: "lemma".to_string(),
+                label: "Lemma".to_string(),
+                numbered: true,
+            },
+            Theorem {
+                name: "corollary".to_string(),
+                label: "Corollary".to_string(),
+                numbered: true,
+            },
+            Theorem {
+                name: "proposition".to_string(),
+                label: "Proposition".to_string(),
+                numbered: true,
+            },
+            Theorem {
+                name: "definition".to_string(),
+                label: "Definition".to_string(),
+                numbered: false,
+            },
+            Theorem {
+                name: "example".to_string(),
+                label: "Example".to_string(),
+                numbered: false,
+            },
+            Theorem {
+                name: "remark".to_string(),
+                label: "Remark".to_string(),
+                numbered: false,
+            },
+            Theorem {
+                name: "proof".to_string(),
+                label: "Proof".to_string(),
+                numbered: false,
+            },
         ];
         match self {
             FormattedText::Latex(s) => latex_to_html(s, theorems),
@@ -30,7 +78,7 @@ impl FormattedText {
     }
 }
 
-fn latex_to_html(latex: &str, theorems: Vec<(String, String)>) -> Result<String, String> {
+fn latex_to_html(latex: &str, theorems: Vec<Theorem>) -> Result<String, String> {
     let mut filters: Vec<Box<dyn PandocFilter>> = vec![Box::new(EnvFilter::new(theorems))];
 
     let mut preprocessed = latex.to_string();
@@ -133,12 +181,17 @@ mod test_latex_to_html {
         In a one-hour interval, at most 20 millimeters of rain can fall.
         \end{theorem}
         This is a reference \ref{lm:1}."#;
-        let result = latex_to_html(&input, vec![("theorem".to_string(), "Theorem".to_string())]);
+        let theorems = vec![Theorem {
+            name: "theorem".to_string(),
+            label: "Theorem".to_string(),
+            numbered: true,
+        }];
+        let result = latex_to_html(&input, theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<strong>Theorem 1</strong>: "));
         assert!(output.contains("<span id=\"lm:1\" label=\"lm:1\"></span>"));
-        assert!(output.contains("<a href=\"#lm:1\">1</a>"));
+        assert!(output.contains("<a href=\"#lm:1\">Theorem 1</a>"));
     }
 
     #[test]
@@ -154,7 +207,12 @@ mod test_latex_to_html {
     fn ignores_extra_parameters() {
         let input =
             r#"\begin{problem}{82/figs/pic.jpeg}{Game of Pebbles} We have a problem \end{problem}"#;
-        let result = latex_to_html(&input, vec![("theorem".to_string(), "Theorem".to_string())]);
+        let theorems = vec![Theorem {
+            name: "theorem".to_string(),
+            label: "Theorem".to_string(),
+            numbered: true,
+        }];
+        let result = latex_to_html(&input, theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output, "<p>We have a problem</p>\n");

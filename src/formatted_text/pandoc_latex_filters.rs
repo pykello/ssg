@@ -1,21 +1,23 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
+use super::formatted_text::Theorem;
+
 pub trait PandocFilter {
     fn preprocess(&mut self, input: &str) -> Result<String, String>;
     fn postprocess(&mut self, input: &str) -> Result<String, String>;
 }
 
 pub struct EnvFilter {
-    theorems: HashMap<String, String>,
-    theorem_labels: HashMap<String, i32>,
+    theorems: HashMap<String, Theorem>,
+    theorem_labels: HashMap<String, String>,
     equation_labels: HashSet<String>,
 }
 
 impl EnvFilter {
-    pub fn new(theorems: Vec<(String, String)>) -> Self {
+    pub fn new(theorems: Vec<Theorem>) -> Self {
         Self {
-            theorems: theorems.into_iter().collect(),
+            theorems: theorems.into_iter().map(|t| (t.name.clone(), t)).collect(),
             theorem_labels: HashMap::new(),
             equation_labels: HashSet::new(),
         }
@@ -69,9 +71,11 @@ impl PandocFilter for EnvFilter {
                     .unwrap_or("");
                 env_stack.push(env_name.to_string());
                 if self.theorems.contains_key(env_name) {
-                    theorem_counter += 1;
-                    let theorem_label = format!("{} {}", self.theorems[env_name], theorem_counter);
-                    result.push_str(&format!("\\textbf{{{}}}: ", theorem_label));
+                    let theorem = &self.theorems[env_name];
+                    if theorem.numbered {
+                        theorem_counter += 1;
+                    }
+                    result.push_str(&format!("\\textbf{{{}}}: ", theorem.label(theorem_counter)));
                 } else if env_name == "equation" {
                     result.push_str(r"$$\begin{equation}");
                 } else if env_name == "problem" || env_name == "solution" {
@@ -83,9 +87,10 @@ impl PandocFilter for EnvFilter {
             } else if s.starts_with(r"\label") {
                 if let Some(env_name) = env_stack.last() {
                     if self.theorems.contains_key(env_name) {
+                        let theorem = &self.theorems[env_name];
                         let label = s.trim_start_matches(r"\label{").trim_end_matches('}');
                         self.theorem_labels
-                            .insert(label.to_string(), theorem_counter);
+                            .insert(label.to_string(), theorem.label(theorem_counter));
                     } else if env_name == "equation" {
                         let label = s.trim_start_matches(r"\label{").trim_end_matches('}');
                         self.equation_labels.insert(label.to_string());
