@@ -101,6 +101,22 @@ mod test_latex_to_html {
     }
 
     #[test]
+    fn test_tables() {
+        let input = r#"
+\begin{table}
+  \begin{tabular}{|c|c|}
+    \hline
+    A & B \\ \hline
+    1 & 2 \\ \hline
+  \end{tabular}
+\end{table}"#;
+        let result = latex_to_html(&input, vec![]);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("<table>"));
+    }
+
+    #[test]
     fn processes_theorems() {
         let input = r#"
         \begin{theorem}\label{lm:1}

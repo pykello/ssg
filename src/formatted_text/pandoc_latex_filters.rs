@@ -74,9 +74,11 @@ impl PandocFilter for EnvFilter {
                     result.push_str(&format!("\\textbf{{{}}}: ", theorem_label));
                 } else if env_name == "equation" {
                     result.push_str(r"$$\begin{equation}");
-                } else {
+                } else if env_name == "problem" || env_name == "solution" {
                     // ignore extra parameters
                     result.push_str(format!("\\begin{{{}}}", env_name).as_str());
+                } else {
+                    result.push_str(s);
                 }
             } else if s.starts_with(r"\label") {
                 if let Some(env_name) = env_stack.last() {
