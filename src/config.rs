@@ -26,6 +26,8 @@ pub struct Config {
     pub text_direction: String,
 
     pub context: Option<HashMap<String, Value>>,
+
+    #[serde(default)]
     pub theorems: Vec<Theorem>,
 }
 
