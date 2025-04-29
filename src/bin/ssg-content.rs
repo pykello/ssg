@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let renderer = Renderer::new(&config);
 
-    let mut html = content.render_html(&renderer)?;
+    let mut html = content.render_html(&renderer, &config)?;
     let mut image_processor = ImageProcessor::new(
         path.clone(),
         config.content_dir.clone(),

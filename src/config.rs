@@ -2,6 +2,8 @@ use serde::Deserialize;
 use serde_yaml::Value;
 use std::{collections::HashMap, path::PathBuf};
 
+use crate::formatted_text::Theorem;
+
 fn default_language() -> String {
     "en".to_string()
 }
@@ -24,6 +26,7 @@ pub struct Config {
     pub text_direction: String,
 
     pub context: Option<HashMap<String, Value>>,
+    pub theorems: Vec<Theorem>,
 }
 
 impl Config {

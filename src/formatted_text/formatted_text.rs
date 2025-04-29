@@ -14,13 +14,18 @@ pub enum FormattedText {
     Html(String),
 }
 
+fn default_numbered() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theorem {
     pub name: String,
     pub label: String,
+
+    #[serde(default = "default_numbered")]
     pub numbered: bool,
 }
-
 
 impl Theorem {
     pub fn label(&self, counter: usize) -> String {
@@ -33,49 +38,7 @@ impl Theorem {
 }
 
 impl FormattedText {
-    pub fn to_html(&self) -> Result<String, String> {
-        let theorems = vec![
-            Theorem {
-                name: "theorem".to_string(),
-                label: "Theorem".to_string(),
-                numbered: true,
-            },
-            Theorem {
-                name: "lemma".to_string(),
-                label: "Lemma".to_string(),
-                numbered: true,
-            },
-            Theorem {
-                name: "corollary".to_string(),
-                label: "Corollary".to_string(),
-                numbered: true,
-            },
-            Theorem {
-                name: "proposition".to_string(),
-                label: "Proposition".to_string(),
-                numbered: true,
-            },
-            Theorem {
-                name: "definition".to_string(),
-                label: "Definition".to_string(),
-                numbered: false,
-            },
-            Theorem {
-                name: "example".to_string(),
-                label: "Example".to_string(),
-                numbered: false,
-            },
-            Theorem {
-                name: "remark".to_string(),
-                label: "Remark".to_string(),
-                numbered: false,
-            },
-            Theorem {
-                name: "proof".to_string(),
-                label: "Proof".to_string(),
-                numbered: false,
-            },
-        ];
+    pub fn to_html(&self, theorems: &Vec<Theorem>) -> Result<String, String> {
         match self {
             FormattedText::Latex(s) => latex_to_html(s, theorems),
             FormattedText::Markdown(s) => markdown_to_html(s),
@@ -84,8 +47,8 @@ impl FormattedText {
     }
 }
 
-fn latex_to_html(latex: &str, theorems: Vec<Theorem>) -> Result<String, String> {
-    let mut filters: Vec<Box<dyn PandocFilter>> = vec![Box::new(EnvFilter::new(theorems))];
+fn latex_to_html(latex: &str, theorems: &Vec<Theorem>) -> Result<String, String> {
+    let mut filters: Vec<Box<dyn PandocFilter>> = vec![Box::new(EnvFilter::new(theorems.clone()))];
 
     let mut preprocessed = latex.to_string();
     for filter in &mut filters {
@@ -126,24 +89,24 @@ mod test_latex_to_html {
 
     #[test]
     fn basic_checks() {
-        let result_1 = latex_to_html("latex", vec![]);
+        let result_1 = latex_to_html("latex", &vec![]);
         assert!(result_1.is_ok());
         let output_1 = result_1.unwrap();
         assert_eq!(output_1, "<p>latex</p>\n");
 
-        let result_2 = latex_to_html("$2^5$", vec![]);
+        let result_2 = latex_to_html("$2^5$", &vec![]);
         assert!(result_2.is_ok());
         let output_2 = result_2.unwrap();
         assert!(output_2.contains("\\(2^5\\)"));
 
-        let result_3 = latex_to_html("$2\\", vec![]);
+        let result_3 = latex_to_html("$2\\", &vec![]);
         assert!(result_3.is_err());
     }
 
     #[test]
     fn retains_equation_blocks() {
         let input = r#"\begin{equation}\label{inequality:first}\frac{1}{x}\end{equation}"#;
-        let result = latex_to_html(&input, vec![]);
+        let result = latex_to_html(&input, &vec![]);
         assert!(result.is_ok());
         let output = result.unwrap();
         println!("{}", output);
@@ -157,7 +120,7 @@ mod test_latex_to_html {
         \begin{equation}\label{inequality:first}\end{equation}
         \begin{equation}\label{inequality:second}\end{equation}
         Inequality~\ref{inequality:first} and Inequality~\ref{inequality:second}."#;
-        let result = latex_to_html(&input, vec![]);
+        let result = latex_to_html(&input, &vec![]);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains(r"\ref{inequality:first}"));
@@ -174,7 +137,7 @@ mod test_latex_to_html {
     1 & 2 \\ \hline
   \end{tabular}
 \end{table}"#;
-        let result = latex_to_html(&input, vec![]);
+        let result = latex_to_html(&input, &vec![]);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<table>"));
@@ -192,7 +155,7 @@ mod test_latex_to_html {
             label: "Theorem".to_string(),
             numbered: true,
         }];
-        let result = latex_to_html(&input, theorems);
+        let result = latex_to_html(&input, &theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<strong>Theorem 1</strong>. "));
@@ -203,7 +166,7 @@ mod test_latex_to_html {
     #[test]
     fn ignores_unknown_environments() {
         let input = r#"\begin{solution} Something \end{solution}"#;
-        let result = latex_to_html(&input, vec![]);
+        let result = latex_to_html(&input, &vec![]);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output, "<p>Something</p>\n");
@@ -218,7 +181,7 @@ mod test_latex_to_html {
             label: "Theorem".to_string(),
             numbered: true,
         }];
-        let result = latex_to_html(&input, theorems);
+        let result = latex_to_html(&input, &theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output, "<p>We have a problem</p>\n");

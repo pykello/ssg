@@ -115,20 +115,22 @@ mod tests {
 
             // Verify problem content
             let problem_html = statement
-                .to_html()
+                .to_html(&vec![])
                 .expect("Failed to convert problem to HTML");
             assert_eq!(problem_html, "<p>Problem Body</p>\n");
 
             // Verify solutions
             assert_eq!(solutions.len(), 1);
             let solution_html = solutions[0]
-                .to_html()
+                .to_html(&vec![])
                 .expect("Failed to convert solution to HTML");
             assert_eq!(solution_html, "<p>Some Solution</p>\n");
 
             // Verify hints
             assert_eq!(hints.len(), 1);
-            let hint_html = hints[0].to_html().expect("Failed to convert hint to HTML");
+            let hint_html = hints[0]
+                .to_html(&vec![])
+                .expect("Failed to convert hint to HTML");
             assert_eq!(hint_html, "<p>Hint Body</p>\n");
         } else {
             panic!("Expected Content::Problem, got something else");
@@ -144,7 +146,7 @@ mod tests {
         let config = Config {
             content_dir: PathBuf::from("/tmp"),
             build_dir: PathBuf::from("/tmp/build"),
-            .. Default::default()
+            ..Default::default()
         };
 
         // Create metadata.yaml
