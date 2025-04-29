@@ -144,9 +144,7 @@ mod tests {
         let config = Config {
             content_dir: PathBuf::from("/tmp"),
             build_dir: PathBuf::from("/tmp/build"),
-            template_dir: PathBuf::from("/tmp/templates"),
-            translation_dir: None,
-            context: None,
+            .. Default::default()
         };
 
         // Create metadata.yaml

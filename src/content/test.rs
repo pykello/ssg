@@ -10,5 +10,6 @@ pub fn get_test_config() -> Config {
         template_dir: PathBuf::from("templates"),
         translation_dir: None,
         context: None,
+        ..Default::default()
     }
 }

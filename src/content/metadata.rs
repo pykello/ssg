@@ -25,7 +25,6 @@ pub struct ContentMetadata {
     pub id: Option<String>,
     pub tags: Option<Vec<String>>,
     pub timestamp: Option<String>,
-    pub language: Option<String>,
     pub image: Option<PathBuf>,
     #[serde(rename = "type")]
     pub kind: ContentKind,

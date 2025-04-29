@@ -34,12 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let content = Content::load(&path, &config)
         .expect(&format!("Failed to load content from {}", path.display()));
 
-    let language = content
-        .metadata()
-        .language
-        .clone()
-        .unwrap_or_else(|| "en".to_string());
-    let renderer = Renderer::new(&config, language);
+    let renderer = Renderer::new(&config);
 
     let mut html = content.render_html(&renderer)?;
     let mut image_processor = ImageProcessor::new(

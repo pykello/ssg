@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use super::{
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
@@ -11,11 +13,13 @@ pub enum FormattedText {
     Markdown(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theorem {
     pub name: String,
     pub label: String,
     pub numbered: bool,
 }
+
 
 impl Theorem {
     pub fn label(&self, counter: usize) -> String {
@@ -189,7 +193,7 @@ mod test_latex_to_html {
         let result = latex_to_html(&input, theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
-        assert!(output.contains("<strong>Theorem 1</strong>: "));
+        assert!(output.contains("<strong>Theorem 1</strong>. "));
         assert!(output.contains("<span id=\"lm:1\" label=\"lm:1\"></span>"));
         assert!(output.contains("<a href=\"#lm:1\">Theorem 1</a>"));
     }

@@ -14,7 +14,6 @@ struct IndexConfig {
     title: String,
     #[serde(rename = "content-type")]
     content_type: ContentKind,
-    language: Option<String>,
     path: Option<String>,
 }
 
@@ -55,11 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_content = fs::read_to_string(&index_yaml_path)?;
     let index_config: IndexConfig = serde_yaml::from_str(&config_content)?;
 
-    let language = index_config
-        .language
-        .clone()
-        .unwrap_or_else(|| "en".to_string());
-    let renderer = Renderer::new(&config, language);
+    let renderer = Renderer::new(&config);
 
     let parent_dir = index_yaml_path.parent().unwrap();
     let output_base_dir = if let Ok(rel) = parent_dir.strip_prefix(&config.content_dir) {

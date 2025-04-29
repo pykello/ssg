@@ -4,16 +4,15 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use tera::{Context, Function, Tera, Value};
 
-use crate::config;
+use crate::config::Config;
 
 pub struct Renderer {
     tera: Tera,
-    language: String,
     default_context: Context,
 }
 
 impl Renderer {
-    pub fn new(config: &config::Config, language: String) -> Self {
+    pub fn new(config: &Config) -> Self {
         let templates_path = config.template_dir.join("**/*.html");
         let mut tera = match Tera::new(&templates_path.to_string_lossy()) {
             Ok(t) => t,
@@ -25,7 +24,7 @@ impl Renderer {
 
         let translations = match &config.translation_dir {
             Some(translations_root) => {
-                let translations_file = translations_root.join(&format!("{}.csv", language));
+                let translations_file = translations_root.join(&format!("{}.csv", config.language));
                 match load_translations(&translations_file) {
                     Ok(t) => t,
                     Err(e) => {
@@ -40,12 +39,8 @@ impl Renderer {
         tera.register_function("translate", translate_to_tera(translations));
 
         let mut default_context = Context::new();
-        if language == "fa" {
-            default_context.insert("text_direction", "rtl");
-        } else {
-            default_context.insert("text_direction", "ltr");
-        }
-        default_context.insert("lang", &language);
+        default_context.insert("text_direction", &config.text_direction);
+        default_context.insert("language", &config.language);
 
         if let Some(context) = &config.context {
             for (key, value) in context {
@@ -55,7 +50,6 @@ impl Renderer {
 
         Self {
             tera,
-            language,
             default_context,
         }
     }

@@ -135,8 +135,7 @@ mod tests {
             content_dir: PathBuf::from("/tmp"),
             build_dir: PathBuf::from("/tmp/build"),
             template_dir: PathBuf::from("/tmp/templates"),
-            translation_dir: None,
-            context: None,
+            ..Default::default()
         };
 
         // Create metadata.yaml
@@ -187,8 +186,7 @@ id: "test-page"
             content_dir: PathBuf::from("/content"),
             build_dir: PathBuf::from("/build"),
             template_dir: PathBuf::from("/templates"),
-            translation_dir: None,
-            context: None,
+            ..Default::default()
         };
 
         let path = Path::new("/content/page1.md");
@@ -203,9 +201,7 @@ id: "test-page"
         let conf = Config {
             content_dir: PathBuf::from("content"),
             build_dir: PathBuf::from("build"),
-            template_dir: PathBuf::from("/templates"),
-            translation_dir: None,
-            context: None,
+            ..Default::default()
         };
 
         let path = Path::new("content/subdir/page1.md");
@@ -220,9 +216,7 @@ id: "test-page"
         let conf = Config {
             content_dir: PathBuf::from("content"),
             build_dir: PathBuf::from("build"),
-            template_dir: PathBuf::from("/templates"),
-            translation_dir: None,
-            context: None,
+            ..Default::default()
         };
 
         let path = Path::new("content/subdir/page1.md");
