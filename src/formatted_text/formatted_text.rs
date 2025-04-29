@@ -11,6 +11,7 @@ use super::{
 pub enum FormattedText {
     Latex(String),
     Markdown(String),
+    Html(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +79,7 @@ impl FormattedText {
         match self {
             FormattedText::Latex(s) => latex_to_html(s, theorems),
             FormattedText::Markdown(s) => markdown_to_html(s),
+            FormattedText::Html(s) => Ok(s.clone()),
         }
     }
 }

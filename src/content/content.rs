@@ -36,7 +36,7 @@ impl Content {
                 })
             }
             ContentKind::Page => {
-                load_single_content_file(path, metadata, "content", |metadata, body| {
+                load_single_content_file(path, metadata, "body", |metadata, body| {
                     Content::Page { metadata, body }
                 })
             }
@@ -69,6 +69,7 @@ where
 
     let md_file = base_path.join(format!("{}.md", file_basename));
     let tex_file = base_path.join(format!("{}.tex", file_basename));
+    let html_file = base_path.join(format!("{}.html", file_basename));
 
     let content = if md_file.exists() {
         let text = fs::read_to_string(md_file)?;
@@ -76,6 +77,9 @@ where
     } else if tex_file.exists() {
         let text = fs::read_to_string(tex_file)?;
         FormattedText::Latex(text)
+    } else if html_file.exists() {
+        let text = fs::read_to_string(html_file)?;
+        FormattedText::Html(text)
     } else {
         return Err(format!("No {} file found", file_basename).into());
     };
@@ -149,9 +153,9 @@ id: "test-page"
         )
         .unwrap();
 
-        // Create content.md
+        // Create body.md
         fs::write(
-            temp_path.join("content.md"),
+            temp_path.join("body.md"),
             "# Test Page Content\n\nThis is a test page with some *markdown* content.",
         )
         .unwrap();
