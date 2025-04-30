@@ -41,6 +41,7 @@ impl Content {
                         "image": metadata.image,
                     }),
                 );
+                context.insert("title".to_string(), json!(metadata.title.clone()));
 
                 // Render the problem template
                 renderer
@@ -60,6 +61,7 @@ impl Content {
                         "body": body_html,
                     }),
                 );
+                context.insert("title".to_string(), json!(metadata.title.clone()));
 
                 // Render the blog template
                 renderer.render("blog.html", context).map_err(|e| e.into())
@@ -75,6 +77,7 @@ impl Content {
                         "body": body_html,
                     }),
                 );
+                context.insert("title".to_string(), json!(metadata.title.clone()));
 
                 // Render the page template - simpler than blog template
                 renderer.render("page.html", context).map_err(|e| e.into())
