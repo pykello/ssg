@@ -160,7 +160,7 @@ mod test_latex_to_html {
         let output = result.unwrap();
         assert!(output.contains("<strong>Theorem 1</strong>. "));
         assert!(output.contains("<span id=\"lm:1\" label=\"lm:1\"></span>"));
-        assert!(output.contains("<a href=\"#lm:1\">Theorem 1</a>"));
+        assert!(output.contains("<a href=\"#lm:1\">1</a>"));
     }
 
     #[test]

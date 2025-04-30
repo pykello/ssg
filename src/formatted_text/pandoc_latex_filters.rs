@@ -87,10 +87,9 @@ impl PandocFilter for EnvFilter {
             } else if s.starts_with(r"\label") {
                 if let Some(env_name) = env_stack.last() {
                     if self.theorems.contains_key(env_name) {
-                        let theorem = &self.theorems[env_name];
                         let label = s.trim_start_matches(r"\label{").trim_end_matches('}');
                         self.theorem_labels
-                            .insert(label.to_string(), theorem.label(theorem_counter));
+                            .insert(label.to_string(), format!("{}", theorem_counter));
                     } else if env_name == "equation" {
                         let label = s.trim_start_matches(r"\label{").trim_end_matches('}');
                         self.equation_labels.insert(label.to_string());
