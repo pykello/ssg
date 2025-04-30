@@ -75,12 +75,15 @@ fn latex_to_html(latex: &str, theorems: &Vec<Theorem>) -> Result<String, String>
 }
 
 fn markdown_to_html(markdown: &str) -> Result<String, String> {
-    run_with_timeout(
-        "pandoc",
-        &["--from=markdown", "--to=html", "--mathjax"],
-        Some(markdown),
-        Duration::from_secs(1),
-    )
+    let mut options = comrak::ComrakOptions::default();
+    options.extension.tasklist = true;
+    options.extension.strikethrough = true;
+    options.extension.table = true;
+    options.extension.autolink = true;
+    options.parse.smart = true;
+
+    let html = comrak::markdown_to_html(markdown, &options);
+    Ok(html)
 }
 
 #[cfg(test)]
@@ -188,20 +191,39 @@ mod test_latex_to_html {
     }
 }
 
-#[test]
-fn test_markdown_to_html() {
-    let result_1 = markdown_to_html("markdown");
-    assert!(result_1.is_ok());
-    let output_1 = result_1.unwrap();
-    assert_eq!(output_1, "<p>markdown</p>\n");
+#[cfg(test)]
+mod test_markdown_to_html {
+    use super::*;
 
-    let result_2 = markdown_to_html("## heading\ntext\n");
-    assert!(result_2.is_ok());
-    let output_2 = result_2.unwrap();
-    assert_eq!(output_2, "<h2 id=\"heading\">heading</h2>\n<p>text</p>\n");
+    #[test]
+    fn test_basic_checks() {
+        let result_1 = markdown_to_html("markdown");
+        assert!(result_1.is_ok());
+        let output_1 = result_1.unwrap();
+        assert_eq!(output_1, "<p>markdown</p>\n");
 
-    let result_3 = markdown_to_html("$$\n2^5\n$$");
-    assert!(result_3.is_ok());
-    let output_3 = result_3.unwrap();
-    assert!(output_3.contains("\\[\n2^5\n\\]"));
+        let result_2 = markdown_to_html("## heading\ntext\n");
+        assert!(result_2.is_ok());
+        let output_2 = result_2.unwrap();
+        assert_eq!(output_2, "<h2>heading</h2>\n<p>text</p>\n");
+    }
+
+    #[test]
+    fn test_markdown_with_math() {
+        let result_3 = markdown_to_html("$$\n2^5\n$$");
+        assert!(result_3.is_ok());
+        let output_3 = result_3.unwrap();
+        assert!(output_3.contains("$$\n2^5\n$$"));
+    }
+
+    #[test]
+    fn test_autolink() {
+        let result_4 = markdown_to_html("https://example.com");
+        assert!(result_4.is_ok());
+        let output_4 = result_4.unwrap();
+        assert_eq!(
+            output_4,
+            "<p><a href=\"https://example.com\">https://example.com</a></p>\n"
+        );
+    }
 }
