@@ -65,8 +65,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Base content path: {}", output_base_dir.display());
 
+    let search_path = if let Some(path) = index_config.path {
+        parent_dir.join(path)
+    } else {
+        parent_dir.to_path_buf()
+    };
+
     // Find all content files of the specified type recursively
-    let mut content_items = find_content_files(&parent_dir, index_config.content_type, &config)?;
+    let mut content_items = find_content_files(&search_path, index_config.content_type, &config)?;
 
     // Sort content by date (newest first) or title if date is not available
     content_items.sort_by(|a, b| {
