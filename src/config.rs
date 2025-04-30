@@ -17,7 +17,7 @@ pub struct Config {
     pub build_dir: PathBuf,
     pub content_dir: PathBuf,
     pub template_dir: PathBuf,
-    pub translation_dir: Option<PathBuf>,
+    pub translations_csv: Option<PathBuf>,
 
     #[serde(default = "default_language")]
     pub language: String,

@@ -8,7 +8,7 @@ pub fn get_test_config() -> Config {
         content_dir: PathBuf::from("src/test_assets"),
         build_dir: PathBuf::from("build"),
         template_dir: PathBuf::from("templates"),
-        translation_dir: None,
+        translations_csv: None,
         context: None,
         ..Default::default()
     }

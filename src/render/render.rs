@@ -22,17 +22,14 @@ impl Renderer {
             }
         };
 
-        let translations = match &config.translation_dir {
-            Some(translations_root) => {
-                let translations_file = translations_root.join(&format!("{}.csv", config.language));
-                match load_translations(&translations_file) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("Error loading translations: {}", e);
-                        std::process::exit(1);
-                    }
+        let translations: HashMap<String, String> = match &config.translations_csv {
+            Some(translations_file) => match load_translations(&translations_file) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Error loading translations: {}", e);
+                    std::process::exit(1);
                 }
-            }
+            },
             None => HashMap::new(),
         };
 
@@ -74,6 +71,17 @@ impl Renderer {
     }
 }
 
+fn strip(s: &str) -> String {
+    let mut s = s.trim();
+    if s.starts_with('"') {
+        s = &s[1..];
+    }
+    if s.ends_with('"') {
+        s = &s[..s.len() - 1];
+    }
+    s.to_string()
+}
+
 fn load_translations(path: &Path) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -87,8 +95,8 @@ fn load_translations(path: &Path) -> Result<HashMap<String, String>, Box<dyn std
 
         // Split by first comma (CSV format)
         if let Some(pos) = line.find(',') {
-            let key = line[..pos].trim().to_string();
-            let value = line[(pos + 1)..].trim().to_string();
+            let key = strip(&line[..pos]);
+            let value = strip(&line[(pos + 1)..]);
             translations.insert(key, value);
         }
     }
