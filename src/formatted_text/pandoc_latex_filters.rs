@@ -25,7 +25,7 @@ impl EnvFilter {
 
     fn generate_theorem_regex(&self) -> Regex {
         let mut pattern = r"\\label\{[\w:-]+\}|\\ref\{[\w:-]+\}".to_string();
-        pattern.push_str(r"|\\begin(\{[^}]+\})+|\\end\{\w+\}");
+        pattern.push_str(r"|\\begin(\{[^}]*\})+|\\end\{\w+\}");
         Regex::new(&pattern).unwrap()
     }
 

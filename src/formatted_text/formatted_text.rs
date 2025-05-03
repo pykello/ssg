@@ -189,6 +189,20 @@ mod test_latex_to_html {
         let output = result.unwrap();
         assert_eq!(output, "<p>We have a problem</p>\n");
     }
+
+    #[test]
+    fn ignores_extra_parameters_empty() {
+        let input = r#"\begin{problem}{}{A Problem}Some text\end{problem}"#;
+        let theorems = vec![Theorem {
+            name: "theorem".to_string(),
+            label: "Theorem".to_string(),
+            numbered: true,
+        }];
+        let result = latex_to_html(&input, &theorems);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output, "<p>Some text</p>\n");
+    }
 }
 
 #[cfg(test)]
