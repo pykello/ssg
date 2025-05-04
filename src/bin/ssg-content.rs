@@ -54,7 +54,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(parent)?;
     }
 
-    println!("Generating {}", output_file_path.display());
     fs::write(output_file_path, html)?;
 
     Ok(())
