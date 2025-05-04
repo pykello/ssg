@@ -9,12 +9,18 @@ use std::{
 };
 use walkdir::WalkDir;
 
+fn default_template() -> String {
+    "list.html".to_string()
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct IndexConfig {
     title: String,
     #[serde(rename = "content-type")]
     content_type: ContentKind,
     path: Option<String>,
+    #[serde(default = "default_template")]
+    template: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -110,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Value::Array(serializable_items),
     );
 
-    let html = renderer.render("list.html", context)?;
+    let html = renderer.render(&index_config.template, context)?;
 
     fs::write(output_path, html)?;
 
