@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::Config;
+
 use super::{
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
@@ -38,10 +40,10 @@ impl Theorem {
 }
 
 impl FormattedText {
-    pub fn to_html(&self, theorems: &Vec<Theorem>) -> Result<String, String> {
+    pub fn to_html(&self, config: &Config) -> Result<String, String> {
         match self {
-            FormattedText::Latex(s) => latex_to_html(s, theorems),
-            FormattedText::Markdown(s) => markdown_to_html(s),
+            FormattedText::Latex(s) => latex_to_html(s, &config.theorems),
+            FormattedText::Markdown(s) => markdown_to_html(s, config),
             FormattedText::Html(s) => Ok(s.clone()),
         }
     }
@@ -74,7 +76,7 @@ fn latex_to_html(latex: &str, theorems: &Vec<Theorem>) -> Result<String, String>
     })
 }
 
-fn markdown_to_html(markdown: &str) -> Result<String, String> {
+fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     let mut options = comrak::ComrakOptions::default();
     options.extension.tasklist = true;
     options.extension.strikethrough = true;
@@ -82,7 +84,13 @@ fn markdown_to_html(markdown: &str) -> Result<String, String> {
     options.extension.autolink = true;
     options.parse.smart = true;
 
-    let html = comrak::markdown_to_html(markdown, &options);
+    let mut plugins = comrak::Plugins::default();
+    let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
+        .theme(config.syntax_highlighter_theme.as_str());
+    let adapter = builder.build();
+    plugins.render.codefence_syntax_highlighter = Some(&adapter);
+
+    let html = comrak::markdown_to_html_with_plugins(markdown, &options, &plugins);
     Ok(html)
 }
 
@@ -208,15 +216,17 @@ mod test_latex_to_html {
 #[cfg(test)]
 mod test_markdown_to_html {
     use super::*;
+    use crate::content::test::get_test_config;
 
     #[test]
     fn test_basic_checks() {
-        let result_1 = markdown_to_html("markdown");
+        let config = get_test_config();
+        let result_1 = markdown_to_html("markdown", &config);
         assert!(result_1.is_ok());
         let output_1 = result_1.unwrap();
         assert_eq!(output_1, "<p>markdown</p>\n");
 
-        let result_2 = markdown_to_html("## heading\ntext\n");
+        let result_2 = markdown_to_html("## heading\ntext\n", &config);
         assert!(result_2.is_ok());
         let output_2 = result_2.unwrap();
         assert_eq!(output_2, "<h2>heading</h2>\n<p>text</p>\n");
@@ -224,7 +234,8 @@ mod test_markdown_to_html {
 
     #[test]
     fn test_markdown_with_math() {
-        let result_3 = markdown_to_html("$$\n2^5\n$$");
+        let config = get_test_config();
+        let result_3 = markdown_to_html("$$\n2^5\n$$", &config);
         assert!(result_3.is_ok());
         let output_3 = result_3.unwrap();
         assert!(output_3.contains("$$\n2^5\n$$"));
@@ -232,12 +243,23 @@ mod test_markdown_to_html {
 
     #[test]
     fn test_autolink() {
-        let result_4 = markdown_to_html("https://example.com");
+        let config = get_test_config();
+        let result_4 = markdown_to_html("https://example.com", &config);
         assert!(result_4.is_ok());
         let output_4 = result_4.unwrap();
         assert_eq!(
             output_4,
             "<p><a href=\"https://example.com\">https://example.com</a></p>\n"
         );
+    }
+
+    #[test]
+    fn test_syntax_highlighting() {
+        let config = get_test_config();
+        println!("{}", config.syntax_highlighter_theme);
+        let result = markdown_to_html("```rust\nfn main() {}\n```", &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("background-color"));
     }
 }

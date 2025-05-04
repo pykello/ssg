@@ -112,24 +112,25 @@ mod tests {
             // Verify metadata
             assert_eq!(metadata.title, "Sample Problem");
             assert_eq!(metadata.id, Some("sample-problem-001".to_string()));
+            let config = get_test_config();
 
             // Verify problem content
             let problem_html = statement
-                .to_html(&vec![])
+                .to_html(&config)
                 .expect("Failed to convert problem to HTML");
             assert_eq!(problem_html, "<p>Problem Body</p>\n");
 
             // Verify solutions
             assert_eq!(solutions.len(), 1);
             let solution_html = solutions[0]
-                .to_html(&vec![])
+                .to_html(&config)
                 .expect("Failed to convert solution to HTML");
             assert_eq!(solution_html, "<p>Some Solution</p>\n");
 
             // Verify hints
             assert_eq!(hints.len(), 1);
             let hint_html = hints[0]
-                .to_html(&vec![])
+                .to_html(&config)
                 .expect("Failed to convert hint to HTML");
             assert_eq!(hint_html, "<p>Hint Body</p>\n");
         } else {

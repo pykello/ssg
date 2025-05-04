@@ -174,7 +174,7 @@ id: "test-page"
 
         // Verify content by rendering to HTML
         if let Content::Page { body, .. } = content {
-            let html = body.to_html(&config.theorems).unwrap();
+            let html = body.to_html(&config).unwrap();
             assert!(html.contains("<h1"));
             assert!(html.contains("Test Page Content"));
             assert!(html.contains("<em>markdown</em>"));

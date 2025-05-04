@@ -12,12 +12,24 @@ fn default_text_direction() -> String {
     "ltr".to_string()
 }
 
+/*
+ * Options:
+ * `base16-ocean.dark`,`base16-eighties.dark`,`base16-mocha.dark`,`base16-ocean.light`
+ * `InspiredGitHub`, `Solarized (dark)` and `Solarized (light)`
+ */
+fn default_syntax_highlighter_theme() -> String {
+    "base16-ocean.dark".to_string()
+}
+
 #[derive(Deserialize, Default)]
 pub struct Config {
     pub build_dir: PathBuf,
     pub content_dir: PathBuf,
     pub template_dir: PathBuf,
     pub translations_csv: Option<PathBuf>,
+
+    #[serde(default = "default_syntax_highlighter_theme")]
+    pub syntax_highlighter_theme: String,
 
     #[serde(default = "default_language")]
     pub language: String,

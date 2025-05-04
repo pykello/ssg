@@ -8,8 +8,7 @@ pub fn get_test_config() -> Config {
         content_dir: PathBuf::from("src/test_assets"),
         build_dir: PathBuf::from("build"),
         template_dir: PathBuf::from("templates"),
-        translations_csv: None,
-        context: None,
+        syntax_highlighter_theme: "base16-ocean.dark".to_string(),
         ..Default::default()
     }
 }
