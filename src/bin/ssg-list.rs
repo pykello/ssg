@@ -15,7 +15,7 @@ fn default_template() -> String {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct IndexConfig {
-    title: String,
+    title: Option<String>,
     #[serde(rename = "content-type")]
     content_type: ContentKind,
     path: Option<String>,
@@ -100,10 +100,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create context for rendering
     let mut context = HashMap::new();
-    context.insert(
-        "title".to_string(),
-        Value::String(index_config.title.clone()),
-    );
+    if let Some(title) = index_config.title {
+        context.insert("title".to_string(), Value::String(title));
+    }
 
     // Convert content items to serializable format
     let serializable_items: Vec<_> = content_items
