@@ -25,6 +25,10 @@ pub enum Content {
 impl Content {
     // Factory function to load content based on type
     pub fn load(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
+        if !path.is_dir() {
+            return load_bare_page(path, config);
+        }
+
         let metadata = ContentMetadata::load(path, config)?;
 
         match metadata.kind {
@@ -53,6 +57,39 @@ impl Content {
             Content::Blog { metadata, .. } => metadata,
             Content::Page { metadata, .. } => metadata,
         }
+    }
+}
+
+
+fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
+    let extension = path.extension().and_then(|s| s.to_str());
+    let mut metadata = ContentMetadata::default();
+    metadata.kind = ContentKind::Page;
+    metadata.output_path = content_output_path(path, config)?;
+    metadata.url = content_url(path, config)?;
+    match extension {
+        Some("md") => {
+            let text = std::fs::read_to_string(path)?;
+            Ok(Content::Page {
+                metadata: metadata,
+                body: FormattedText::Markdown(text),
+            })
+        }
+        Some("tex") => {
+            let text = std::fs::read_to_string(path)?;
+            Ok(Content::Page {
+                metadata: metadata,
+                body: FormattedText::Latex(text),
+            })
+        }
+        Some("html") => {
+            let text = std::fs::read_to_string(path)?;
+            Ok(Content::Page {
+                metadata: metadata,
+                body: FormattedText::Html(text),
+            })
+        }
+        _ => Err(format!("Unsupported file type: {:?}", extension).into()),
     }
 }
 
@@ -93,6 +130,7 @@ pub fn content_output_path(
     config: &Config,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cwd = std::env::current_dir()?;
+    let path = path.with_extension("");
     let path = cwd.join(path);
     let content_dir = cwd.join(&config.content_dir);
     let rel_path = path.strip_prefix(content_dir.clone()).map_err(|_e| {

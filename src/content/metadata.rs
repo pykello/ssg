@@ -19,7 +19,7 @@ pub enum ContentKind {
     Unknown,
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Default)]
 pub struct ContentMetadata {
     pub title: String,
     pub author: Option<String>,
