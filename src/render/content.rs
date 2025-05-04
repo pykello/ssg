@@ -59,6 +59,7 @@ impl Content {
                         "tags": metadata.tags,
                         "timestamp": metadata.timestamp,
                         "body": body_html,
+                        "author": metadata.author,
                     }),
                 );
                 context.insert("title".to_string(), json!(metadata.title.clone()));

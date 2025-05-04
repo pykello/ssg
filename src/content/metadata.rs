@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
@@ -24,8 +25,9 @@ pub struct ContentMetadata {
     pub author: Option<String>,
     pub id: Option<String>,
     pub tags: Option<Vec<String>>,
-    pub timestamp: Option<String>,
+    pub timestamp: Option<DateTime<chrono::Utc>>,
     pub image: Option<PathBuf>,
+    pub description: Option<String>,
     #[serde(rename = "type")]
     pub kind: ContentKind,
 
@@ -73,7 +75,7 @@ mod tests {
                 "tutorial".to_string()
             ])
         );
-        assert_eq!(metadata.timestamp, Some("2025-03-06T12:00:00Z".to_string()));
+        assert_eq!(metadata.timestamp, Some("2025-03-06T12:00:00Z".parse::<DateTime<chrono::Utc>>().unwrap()));
     }
 
     #[test]
