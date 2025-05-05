@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 /// Finds all images in the given root directory.
 /// Returns a vector of paths relative to the root.
 fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let allowed_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff"];
+    let allowed_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg"];
 
     let mut images = Vec::new();
 
