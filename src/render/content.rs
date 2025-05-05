@@ -28,6 +28,11 @@ impl Content {
                     .collect();
 
                 let mut context = HashMap::new();
+                let template = if let Some(template) = &metadata.template {
+                    template.clone()
+                } else {
+                    "problem.html".to_string()
+                };
                 context.insert(
                     "problem".to_string(),
                     json!({
@@ -43,14 +48,23 @@ impl Content {
                 );
                 context.insert("title".to_string(), json!(metadata.title.clone()));
 
+                if let Some(additional_context) = metadata.context.clone() {
+                    for (key, value) in additional_context {
+                        context.insert(key, json!(value));
+                    }
+                }
+
                 // Render the problem template
-                renderer
-                    .render("problem.html", context)
-                    .map_err(|e| e.into())
+                renderer.render(&template, context).map_err(|e| e.into())
             }
             Content::Blog { metadata, body } => {
                 let body_html = body.to_html(&config)?;
                 let mut context = HashMap::new();
+                let template = if let Some(template) = &metadata.template {
+                    template.clone()
+                } else {
+                    "blog.html".to_string()
+                };
                 context.insert(
                     "blog".to_string(),
                     json!({
@@ -64,12 +78,23 @@ impl Content {
                 );
                 context.insert("title".to_string(), json!(metadata.title.clone()));
 
+                if let Some(additional_context) = metadata.context.clone() {
+                    for (key, value) in additional_context {
+                        context.insert(key, json!(value));
+                    }
+                }
+
                 // Render the blog template
-                renderer.render("blog.html", context).map_err(|e| e.into())
+                renderer.render(&template, context).map_err(|e| e.into())
             }
             Content::Page { metadata, body } => {
                 let body_html = body.to_html(&config)?;
                 let mut context = HashMap::new();
+                let template = if let Some(template) = &metadata.template {
+                    template.clone()
+                } else {
+                    "page.html".to_string()
+                };
                 context.insert(
                     "page".to_string(),
                     json!({
@@ -80,8 +105,14 @@ impl Content {
                 );
                 context.insert("title".to_string(), json!(metadata.title.clone()));
 
+                if let Some(additional_context) = metadata.context.clone() {
+                    for (key, value) in additional_context {
+                        context.insert(key, json!(value));
+                    }
+                }
+
                 // Render the page template - simpler than blog template
-                renderer.render("page.html", context).map_err(|e| e.into())
+                renderer.render(&template, context).map_err(|e| e.into())
             }
         }
     }

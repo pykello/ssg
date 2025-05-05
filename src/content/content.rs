@@ -60,7 +60,6 @@ impl Content {
     }
 }
 
-
 fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
     let extension = path.extension().and_then(|s| s.to_str());
     let mut metadata = ContentMetadata::default();
@@ -72,7 +71,11 @@ fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error
             let text = std::fs::read_to_string(path)?;
             let lines = text.lines().collect::<Vec<_>>();
             if lines.len() > 0 && (lines[0].starts_with("# ") || lines[0].starts_with("## ")) {
-                metadata.title = lines[0].replace("## ", "").replace("# ", "").trim().to_string();
+                metadata.title = lines[0]
+                    .replace("## ", "")
+                    .replace("# ", "")
+                    .trim()
+                    .to_string();
             }
             Ok(Content::Page {
                 metadata: metadata,

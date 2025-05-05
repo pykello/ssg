@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,8 +29,12 @@ pub struct ContentMetadata {
     pub timestamp: Option<DateTime<chrono::Utc>>,
     pub image: Option<PathBuf>,
     pub description: Option<String>,
+
     #[serde(rename = "type")]
     pub kind: ContentKind,
+
+    pub template: Option<String>,
+    pub context: Option<HashMap<String, serde_yaml::Value>>,
 
     #[serde(skip_deserializing, default)]
     pub output_path: PathBuf,
@@ -75,7 +80,14 @@ mod tests {
                 "tutorial".to_string()
             ])
         );
-        assert_eq!(metadata.timestamp, Some("2025-03-06T12:00:00Z".parse::<DateTime<chrono::Utc>>().unwrap()));
+        assert_eq!(
+            metadata.timestamp,
+            Some(
+                "2025-03-06T12:00:00Z"
+                    .parse::<DateTime<chrono::Utc>>()
+                    .unwrap()
+            )
+        );
     }
 
     #[test]
