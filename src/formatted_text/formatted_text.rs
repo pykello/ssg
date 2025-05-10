@@ -84,6 +84,7 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.extension.autolink = true;
     options.extension.alerts = true;
     options.parse.smart = true;
+    options.render.unsafe_ = true;
 
     let mut plugins = comrak::Plugins::default();
     let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
@@ -275,5 +276,35 @@ mod test_markdown_to_html {
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains(r#"<p class="markdown-alert-title">Note</p>"#));
+    }
+
+    #[test]
+    fn test_strikethrough() {
+        let config = get_test_config();
+        let result = markdown_to_html("~~strikethrough~~", &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output, "<p><del>strikethrough</del></p>\n");
+    }
+
+    #[test]
+    fn test_table() {
+        let config = get_test_config();
+        let result = markdown_to_html(
+            "| Header 1 | Header 2 |\n| --------- | -------- |\n| Row 1    | Row 2   |",
+            &config,
+        );
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("<table>"));
+    }
+
+    #[test]
+    fn test_custom_html() {
+        let config = get_test_config();
+        let result = markdown_to_html("<div class=\"custom-class\">Custom HTML</div>", &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output, "<div class=\"custom-class\">Custom HTML</div>\n");
     }
 }
