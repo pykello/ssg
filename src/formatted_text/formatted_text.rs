@@ -82,6 +82,7 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.extension.strikethrough = true;
     options.extension.table = true;
     options.extension.autolink = true;
+    options.extension.alerts = true;
     options.parse.smart = true;
 
     let mut plugins = comrak::Plugins::default();
@@ -261,5 +262,18 @@ mod test_markdown_to_html {
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("background-color"));
+    }
+
+    #[test]
+    fn test_alerts() {
+        let config = get_test_config();
+        let result = markdown_to_html(
+            "> [!NOTE]
+> Highlights information that users should take into account, even when skimming.",
+            &config,
+        );
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains(r#"<p class="markdown-alert-title">Note</p>"#));
     }
 }
