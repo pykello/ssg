@@ -1,15 +1,4 @@
-pub fn process_heading(line: &str) -> (String, String) {
-    let openning_bracket = line.find("[");
-    let final_bracket = line.find("]");
-    if let Some(link_start) = openning_bracket {
-        if let Some(link_end) = final_bracket {
-            let heading = line[..link_start].to_string();
-            let link = line[link_start + 1..link_end].to_string();
-            return (heading, link);
-        }
-    }
-    ("".to_string(), line.to_string())
-}
+use regex::Regex;
 
 /// Replace `:::expandable … :::` with Bootstrap‑collapse HTML.
 pub fn preprocess_expandables(markdown: &str) -> String {
@@ -24,17 +13,19 @@ pub fn preprocess_expandables(markdown: &str) -> String {
             id_counter += 1;
             let id = format!("expand-{}", id_counter);
 
-            let (heading, link) = process_heading(heading_line);
+            let re = Regex::new(r"\[([^\]]+)\]").unwrap();
+            let heading_line = re.replace_all(heading_line, |caps: &regex::Captures| {
+                format!(r#"<a class="expand-link" data-bs-toggle="collapse" href='#{id}'>{}</a>"#, &caps[1], id = id)
+            }).into_owned();
 
             // ── 2. Emit the toggle + opening wrappers ───────────────────
             out.push_str(&format!(
-                r#"{heading}<a class="expand-link" data-bs-toggle="collapse" href='#{id}'>{link}</a>
+                r#"{heading_line}
 
 <div class="collapse" id="{id}">
   <div class="card card-body">
 "#,
-                heading = heading,
-                link = link,
+                heading_line = heading_line,
                 id = id
             ));
 
@@ -72,11 +63,11 @@ More text
 ::::
 
 :::expandable
-**Heading 2** [Expand]
+**Heading 2** ([Expand])
 Some more
 "#;
         let out = preprocess_expandables(input);
         assert!(out.contains(r#"**Heading** <a class="expand-link" data-bs-toggle="collapse" href='#expand-1'>Click to Expand</a>"#));
-        assert!(out.contains(r#"**Heading 2** <a class="expand-link" data-bs-toggle="collapse" href='#expand-2'>Expand</a>"#));
+        assert!(out.contains(r#"**Heading 2** (<a class="expand-link" data-bs-toggle="collapse" href='#expand-2'>Expand</a>)"#));
     }
 }
