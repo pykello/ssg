@@ -1,4 +1,5 @@
 mod formatted_text;
+mod markdown_expandable;
 mod pandoc_latex_filters;
 mod shell;
 

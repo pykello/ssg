@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 
 use super::{
+    markdown_expandable::preprocess_expandables,
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
 };
@@ -85,6 +86,8 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.extension.alerts = true;
     options.parse.smart = true;
     options.render.unsafe_ = true;
+
+    let markdown = &preprocess_expandables(markdown);
 
     let mut plugins = comrak::Plugins::default();
     let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
@@ -306,5 +309,24 @@ mod test_markdown_to_html {
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output, "<div class=\"custom-class\">Custom HTML</div>\n");
+    }
+
+    #[test]
+    fn test_expandables() {
+        let config = get_test_config();
+        let input = "Some text
+
+:::expandable
+**Proof**. [Click to Expand]
+
+The proof text $2^4$.
+::::
+
+Some other text
+        ";
+        let result = markdown_to_html(input, &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains(r#"<p><strong>Proof</strong>. <a class="expand-link" data-bs-toggle="collapse" href='#expand-1'>Click to Expand</a></p>"#));
     }
 }
