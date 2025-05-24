@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 
 use super::{
-    markdown_expandable::preprocess_expandables,
+    markdown_expandable::{preprocess_cards, preprocess_expandables},
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
 };
@@ -88,6 +88,7 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.render.unsafe_ = true;
 
     let markdown = &preprocess_expandables(markdown);
+    let markdown = &preprocess_cards(markdown);
 
     let mut plugins = comrak::Plugins::default();
     let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
@@ -328,5 +329,29 @@ Some other text
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains(r#"<p><strong>Proof</strong>. <a class="expand-link" data-bs-toggle="collapse" href='#expand-1'>Click to Expand</a></p>"#));
+    }
+
+    #[test]
+    fn test_cards() {
+        let config = get_test_config();
+        let input = r#"Some text
+:::card[example]
+**Example (Condition Number)** Let $f(x) = \sqrt{x}$. Since $f'(x) = \frac{1}{2\sqrt{x}}$, we have:
+
+$$
+\kappa_{rel}(f, x) = \left\lvert \frac{x f'(x)}{f(x)} \right\rvert = \left\lvert \frac{x/(2\sqrt{x})}{\sqrt{x}} \right\rvert = \frac{1}{2}
+$$
+
+This means that a given relative change in the input causes a relative change in the output of about half as much.
+::::
+Some other text
+        "#;
+        let result = markdown_to_html(input, &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains(r#"<div class="card example">"#));
+        assert!(output.contains(r#"<strong>Example (Condition Number)</strong>"#));
+        assert!(output.contains(r#"Let $f(x) = \sqrt{x}$."#));
+        assert!(output.contains(r#"<p>Some other text</p>"#));
     }
 }
