@@ -78,9 +78,9 @@ impl PandocFilter for EnvFilter {
                     result.push_str(&format!("\\textbf{{{}}}. ", theorem.label(theorem_counter)));
                 } else if env_name == "equation" {
                     result.push_str(r"$$\begin{equation}");
-                } else if env_name == "problem" || env_name == "solution" {
-                    // ignore extra parameters
-                    result.push_str(format!("\\begin{{{}}}", env_name).as_str());
+                } else if env_name == "problem" || env_name == "solution" || env_name == "hint" {
+                    // Ignore these environments entirely
+                    result.push_str("");
                 } else {
                     result.push_str(s);
                 }
@@ -123,6 +123,8 @@ impl PandocFilter for EnvFilter {
                     result.push_str("\n");
                 } else if env_name == "equation" {
                     result.push_str(r"\end{equation}$$");
+                } else if env_name == "problem" || env_name == "solution" || env_name == "hint" {
+                    // Ignore closing tag
                 } else {
                     result.push_str(s);
                 }
