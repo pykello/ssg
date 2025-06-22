@@ -116,6 +116,15 @@ impl ImageProcessor {
         content_dir: PathBuf,
         build_dir: PathBuf,
     ) -> Result<Self, Box<dyn Error>> {
+        let path = if path.is_dir() {
+            path
+        } else {
+            // If the path is a file, use its parent directory
+            path.parent()
+                .ok_or("Provided path is not a directory or file with no parent")?
+                .to_path_buf()
+        };
+
         let images = find_images(&path)?;
 
         Ok(Self {
