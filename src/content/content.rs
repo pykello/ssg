@@ -60,6 +60,38 @@ impl Content {
     }
 }
 
+/// Load a Markdown file and expand simple `#include "file"` directives.
+///
+/// Includes are resolved relative to the directory of `path` and are not
+/// processed recursively.
+pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn Error>> {
+    let content = std::fs::read_to_string(path)?;
+    let base_dir = path.parent().unwrap_or(Path::new(""));
+
+    let mut out = String::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let ends_with_newline = content.ends_with('\n');
+
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#include") {
+            let include_path = trimmed.trim_start_matches("#include").trim();
+            let include_path = include_path.trim_matches('"');
+            let include_file = base_dir.join(include_path);
+            let included = std::fs::read_to_string(include_file)?;
+            out.push_str(&included);
+        } else {
+            out.push_str(line);
+        }
+
+        if idx < lines.len() - 1 || ends_with_newline {
+            out.push('\n');
+        }
+    }
+
+    Ok(out)
+}
+
 fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
     let extension = path.extension().and_then(|s| s.to_str());
     let mut metadata = ContentMetadata::default();
@@ -68,7 +100,7 @@ fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error
     metadata.url = content_url(path, config)?;
     match extension {
         Some("md") => {
-            let text = std::fs::read_to_string(path)?;
+            let text = load_markdown_with_includes(path)?;
             let lines = text.lines().collect::<Vec<_>>();
             if lines.len() > 0 && (lines[0].starts_with("# ") || lines[0].starts_with("## ")) {
                 metadata.title = lines[0]
@@ -117,7 +149,7 @@ where
     let html_file = base_path.join(format!("{}.html", file_basename));
 
     let content = if md_file.exists() {
-        let text = fs::read_to_string(md_file)?;
+        let text = load_markdown_with_includes(&md_file)?;
         FormattedText::Markdown(text)
     } else if tex_file.exists() {
         let text = fs::read_to_string(tex_file)?;
@@ -223,6 +255,38 @@ id: "test-page"
             assert!(html.contains("<h1"));
             assert!(html.contains("Test Page Content"));
             assert!(html.contains("<em>markdown</em>"));
+        } else {
+            panic!("Expected Page content type");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_markdown_include() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = TempDir::new()?;
+        let temp_path = temp_dir.path();
+
+        let config = Config {
+            content_dir: PathBuf::from("/tmp"),
+            build_dir: PathBuf::from("/tmp/build"),
+            template_dir: PathBuf::from("/tmp/templates"),
+            ..Default::default()
+        };
+
+        fs::write(
+            temp_path.join("metadata.yaml"),
+            "title: 'Inc'\ntype: 'page'",
+        )?;
+
+        fs::write(temp_path.join("part.md"), "Included text")?;
+
+        fs::write(temp_path.join("body.md"), "# H\n#include \"part.md\"")?;
+
+        let content = Content::load(temp_path, &config)?;
+        if let Content::Page { body, .. } = content {
+            let html = body.to_html(&config)?;
+            assert!(html.contains("Included text"));
         } else {
             panic!("Expected Page content type");
         }
