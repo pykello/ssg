@@ -34,12 +34,13 @@ pub fn load_problem(
 }
 
 fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
-    let content = fs::read_to_string(file_path)?;
-    match file_path.extension().and_then(|s| s.to_str()) {
-        Some("tex") => Ok(FormattedText::Latex(content)),
-        Some("md") => Ok(FormattedText::Markdown(content)),
-        _ => Err("Unsupported file extension".into()),
+    let content = match file_path.extension().and_then(|s| s.to_str()) {
+        Some("md") => FormattedText::Markdown(super::content::load_markdown_with_includes(file_path)?),
+        Some("tex") => FormattedText::Latex(fs::read_to_string(file_path)?),
+        _ => return Err("Unsupported file extension".into()),
     }
+    ;
+    Ok(content)
 }
 
 // Loads multiple files (e.g., for solutions or hints) that match the pattern:
