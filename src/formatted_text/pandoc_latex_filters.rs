@@ -141,7 +141,18 @@ impl PandocFilter for EnvFilter {
             .replace("(EQREFBEGIN)", "\\ref{")
             .replace("(EQREFEND)", "}")
             .replace(r"$$\begin{equation}", r"\begin{equation}")
-            .replace(r"\end{equation}$$", r"\end{equation}");
+            .replace(r"\end{equation}$$", r"\end{equation}")
+            .replace(
+                "<span\nclass=\"math display\"",
+                "<span class=\"math display\"",
+            )
+            .replace("<div class=\"problem\">", "")
+            .replace("<div class=\"solution\">", "")
+            .replace("<div class=\"hint\">", "")
+            .replace("</div>", "")
+            .trim()
+            .to_string()
+            + "\n";
         Ok(result)
     }
 }

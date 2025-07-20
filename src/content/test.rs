@@ -9,6 +9,7 @@ pub fn get_test_config() -> Config {
         build_dir: PathBuf::from("build"),
         template_dir: PathBuf::from("templates"),
         syntax_highlighter_theme: "base16-ocean.dark".to_string(),
+        raw_math_blocks: true,
         ..Default::default()
     }
 }

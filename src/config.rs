@@ -41,6 +41,15 @@ pub struct Config {
 
     #[serde(default)]
     pub theorems: Vec<Theorem>,
+
+    /// If set to true, math blocks wrapped in `$$` are left untouched by the
+    /// markdown renderer and output verbatim.
+    #[serde(default = "default_raw_math_blocks")]
+    pub raw_math_blocks: bool,
+}
+
+fn default_raw_math_blocks() -> bool {
+    false
 }
 
 impl Config {

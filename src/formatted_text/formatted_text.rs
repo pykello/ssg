@@ -86,6 +86,9 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.extension.alerts = true;
     options.parse.smart = true;
     options.render.unsafe_ = true;
+    if !config.raw_math_blocks {
+        options.extension.math_dollars = true;
+    }
 
     let markdown = &preprocess_expandables(markdown);
     let markdown = &preprocess_cards(markdown);
@@ -245,6 +248,17 @@ mod test_markdown_to_html {
         assert!(result_3.is_ok());
         let output_3 = result_3.unwrap();
         assert!(output_3.contains("$$\n2^5\n$$"));
+    }
+
+    #[test]
+    fn test_markdown_with_math_parsed() {
+        let mut config = get_test_config();
+        config.raw_math_blocks = false;
+        let result = markdown_to_html("$$2+2$$", &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(!output.contains("$$"));
+        assert!(output.contains("data-math-style"));
     }
 
     #[test]
