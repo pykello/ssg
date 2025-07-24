@@ -60,7 +60,7 @@ fn latex_to_html(latex: &str, theorems: &[Theorem]) -> Result<String, String> {
 
     let pandoc_output = run_with_timeout(
         "pandoc",
-        &["--from=latex", "--to=html", "--mathjax"],
+        &["--from=latex", "--to=html", "--mathjax", "--wrap=none"],
         Some(&preprocessed.as_str()),
         Duration::from_secs(1),
     );
