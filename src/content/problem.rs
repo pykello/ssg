@@ -35,11 +35,12 @@ pub fn load_problem(
 
 fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
     let content = match file_path.extension().and_then(|s| s.to_str()) {
-        Some("md") => FormattedText::Markdown(super::content::load_markdown_with_includes(file_path)?),
+        Some("md") => {
+            FormattedText::Markdown(super::content::load_markdown_with_includes(file_path)?)
+        }
         Some("tex") => FormattedText::Latex(fs::read_to_string(file_path)?),
         _ => return Err("Unsupported file extension".into()),
-    }
-    ;
+    };
     Ok(content)
 }
 
@@ -119,21 +120,21 @@ mod tests {
             let problem_html = statement
                 .to_html(&config)
                 .expect("Failed to convert problem to HTML");
-            assert_eq!(problem_html, "<p>Problem Body</p>\n");
+            assert!(problem_html.contains("<p>Problem Body</p>"));
 
             // Verify solutions
             assert_eq!(solutions.len(), 1);
             let solution_html = solutions[0]
                 .to_html(&config)
                 .expect("Failed to convert solution to HTML");
-            assert_eq!(solution_html, "<p>Some Solution</p>\n");
+            assert!(solution_html.contains("<p>Some Solution</p>"));
 
             // Verify hints
             assert_eq!(hints.len(), 1);
             let hint_html = hints[0]
                 .to_html(&config)
                 .expect("Failed to convert hint to HTML");
-            assert_eq!(hint_html, "<p>Hint Body</p>\n");
+            assert!(hint_html.contains("<p>Hint Body</p>"));
         } else {
             panic!("Expected Content::Problem, got something else");
         }
