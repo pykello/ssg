@@ -89,6 +89,11 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
 
     let markdown = &preprocess_expandables(markdown);
     let markdown = &preprocess_cards(markdown);
+    let (markdown, math_segments) = if config.escape_markdown_in_math {
+        (markdown.to_string(), Vec::new())
+    } else {
+        extract_math_segments(markdown)
+    };
 
     let mut plugins = comrak::Plugins::default();
     let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
@@ -96,8 +101,86 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     let adapter = builder.build();
     plugins.render.codefence_syntax_highlighter = Some(&adapter);
 
-    let html = comrak::markdown_to_html_with_plugins(markdown, &options, &plugins);
+    let mut html = comrak::markdown_to_html_with_plugins(&markdown, &options, &plugins);
+
+    if !math_segments.is_empty() {
+        html = restore_math_segments(&html, &math_segments);
+    }
+
     Ok(html)
+}
+
+fn extract_math_segments(markdown: &str) -> (String, Vec<String>) {
+    let chars: Vec<char> = markdown.chars().collect();
+    let mut i = 0;
+    let mut output = String::with_capacity(markdown.len());
+    let mut segments = Vec::new();
+
+    while i < chars.len() {
+        if chars[i] == '$' {
+            let prev_is_escape = i > 0 && chars[i - 1] == '\\';
+            if prev_is_escape {
+                output.push('$');
+                i += 1;
+                continue;
+            }
+
+            let delim_len = if i + 1 < chars.len() && chars[i + 1] == '$' {
+                2
+            } else {
+                1
+            };
+
+            let mut j = i + delim_len;
+            let mut closing_found = false;
+            while j < chars.len() {
+                if chars[j] == '\\' && j + 1 < chars.len() {
+                    j += 2;
+                    continue;
+                }
+
+                if chars[j] == '$' {
+                    let mut matched = true;
+                    for k in 1..delim_len {
+                        if j + k >= chars.len() || chars[j + k] != '$' {
+                            matched = false;
+                            break;
+                        }
+                    }
+
+                    if matched {
+                        closing_found = true;
+                        break;
+                    }
+                }
+
+                j += 1;
+            }
+
+            if closing_found {
+                let segment: String = chars[i..j + delim_len].iter().collect();
+                let placeholder = format!("MATH_SEGMENT_PLACEHOLDER_{}", segments.len());
+                output.push_str(&placeholder);
+                segments.push(segment);
+                i = j + delim_len;
+                continue;
+            }
+        }
+
+        output.push(chars[i]);
+        i += 1;
+    }
+
+    (output, segments)
+}
+
+fn restore_math_segments(html: &str, segments: &[String]) -> String {
+    let mut restored = html.to_string();
+    for (idx, segment) in segments.iter().enumerate() {
+        let placeholder = format!("MATH_SEGMENT_PLACEHOLDER_{}", idx);
+        restored = restored.replace(&placeholder, segment);
+    }
+    restored
 }
 
 #[cfg(test)]
@@ -302,6 +385,35 @@ mod test_markdown_to_html {
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<table>"));
+    }
+
+    #[test]
+    fn test_math_backslash_escaping_enabled() {
+        let config = get_test_config();
+        let input = "$$
+first line \nsecond line
+$$";
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains("second line"));
+    }
+
+    #[test]
+    fn test_math_backslash_escaping_disabled() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = "$$
+first line \
+second line
+$$";
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(
+            "first line \
+second line"
+        ));
+        assert!(!output.contains("<br />"));
     }
 
     #[test]

@@ -12,6 +12,10 @@ fn default_text_direction() -> String {
     "ltr".to_string()
 }
 
+fn default_escape_markdown_in_math() -> bool {
+    true
+}
+
 /*
  * Options:
  * `base16-ocean.dark`,`base16-eighties.dark`,`base16-mocha.dark`,`base16-ocean.light`
@@ -41,6 +45,9 @@ pub struct Config {
 
     #[serde(default)]
     pub theorems: Vec<Theorem>,
+
+    #[serde(default = "default_escape_markdown_in_math")]
+    pub escape_markdown_in_math: bool,
 }
 
 impl Config {
