@@ -159,7 +159,7 @@ fn extract_math_segments(markdown: &str) -> (String, Vec<String>) {
 
             if closing_found {
                 let segment: String = chars[i..j + delim_len].iter().collect();
-                let placeholder = format!("MATH_SEGMENT_PLACEHOLDER_{}", segments.len());
+                let placeholder = format!("MATHSEGMENTPLACEHOLDER{}", segments.len());
                 output.push_str(&placeholder);
                 segments.push(segment);
                 i = j + delim_len;
@@ -177,7 +177,7 @@ fn extract_math_segments(markdown: &str) -> (String, Vec<String>) {
 fn restore_math_segments(html: &str, segments: &[String]) -> String {
     let mut restored = html.to_string();
     for (idx, segment) in segments.iter().enumerate() {
-        let placeholder = format!("MATH_SEGMENT_PLACEHOLDER_{}", idx);
+        let placeholder = format!("MATHSEGMENTPLACEHOLDER{}", idx);
         restored = restored.replace(&placeholder, segment);
     }
     restored
@@ -414,6 +414,20 @@ $$";
 second line"
         ));
         assert!(!output.contains("<br />"));
+    }
+
+    #[test]
+    fn test_math_placeholders_survive_markdown_rendering() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = "A vector $\\mathbf{N}$ perpendicular to both $\\mathbf{u}$ and $\\mathbf{v}$ is called a **normal vector** to $S$ at $P$.";
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"$\mathbf{N}$"));
+        assert!(output.contains(r"$\mathbf{u}$"));
+        assert!(output.contains(r"$\mathbf{v}$"));
+        assert!(!output.contains("PLACEHOLDER"));
     }
 
     #[test]
