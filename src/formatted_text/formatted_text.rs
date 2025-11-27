@@ -159,7 +159,7 @@ fn extract_math_segments(markdown: &str) -> (String, Vec<String>) {
 
             if closing_found {
                 let segment: String = chars[i..j + delim_len].iter().collect();
-                let placeholder = format!("MATHSEGMENTPLACEHOLDER{}", segments.len());
+                let placeholder = format!("MATHSEGMENTPLACEHOLDER{:06}", segments.len());
                 output.push_str(&placeholder);
                 segments.push(segment);
                 i = j + delim_len;
@@ -177,7 +177,7 @@ fn extract_math_segments(markdown: &str) -> (String, Vec<String>) {
 fn restore_math_segments(html: &str, segments: &[String]) -> String {
     let mut restored = html.to_string();
     for (idx, segment) in segments.iter().enumerate() {
-        let placeholder = format!("MATHSEGMENTPLACEHOLDER{}", idx);
+        let placeholder = format!("MATHSEGMENTPLACEHOLDER{:06}", idx);
         restored = restored.replace(&placeholder, segment);
     }
     restored
@@ -428,6 +428,26 @@ second line"
         assert!(output.contains(r"$\mathbf{u}$"));
         assert!(output.contains(r"$\mathbf{v}$"));
         assert!(!output.contains("PLACEHOLDER"));
+    }
+
+    #[test]
+    fn test_math_placeholders_with_double_digits() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = (0..12)
+            .map(|i| format!("${}$", i))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let output = markdown_to_html(&input, &config).unwrap();
+
+        for i in 0..12 {
+            let segment = format!("${}$", i);
+            assert!(output.contains(&segment));
+        }
+
+        assert!(!output.contains("MATHSEGMENTPLACEHOLDER"));
     }
 
     #[test]
