@@ -2,6 +2,18 @@ use clap::{Arg, Command};
 use ssg::{config, content::*, render::*};
 use std::{fs, path::PathBuf};
 
+// These crates are used by the `ssg` library crate. We re-declare them here
+// (as _) so that `cargo check` with -W unused_crate_dependencies does not
+// complain when building only this binary target.
+use chrono as _;
+use comrak as _;
+use regex as _;
+use serde as _;
+use serde_json as _;
+use serde_yaml as _;
+use tera as _;
+use walkdir as _;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up command-line argument parsing with clap
     let matches = Command::new("ssg-content")

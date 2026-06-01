@@ -9,6 +9,14 @@ use std::{
 };
 use walkdir::WalkDir;
 
+// These crates are used by the `ssg` library that this binary depends on.
+// Declaring them here silences `unused_crate_dependencies` when building
+// just the ssg-list binary target.
+use chrono as _;
+use comrak as _;
+use regex as _;
+use tera as _;
+
 fn default_template() -> String {
     "list.html".to_string()
 }
