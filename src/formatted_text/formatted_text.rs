@@ -41,10 +41,10 @@ impl Theorem {
 }
 
 impl FormattedText {
-    pub fn to_html(&self, config: &Config) -> Result<String, String> {
+    pub fn to_html(&self, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
         match self {
-            FormattedText::Latex(s) => latex_to_html(s, &config.theorems),
-            FormattedText::Markdown(s) => markdown_to_html(s, config),
+            FormattedText::Latex(s) => latex_to_html(s, &config.theorems).map_err(Into::into),
+            FormattedText::Markdown(s) => markdown_to_html(s, config).map_err(Into::into),
             FormattedText::Html(s) => Ok(s.clone()),
         }
     }

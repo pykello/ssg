@@ -46,8 +46,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
 
     // Extract values from arguments
-    let index_yaml_path = PathBuf::from(matches.get_one::<String>("path").unwrap());
-    let config_path = matches.get_one::<PathBuf>("config").unwrap().clone();
+    let index_yaml_path = matches
+        .get_one::<String>("path")
+        .map(PathBuf::from)
+        .ok_or("Missing required index.yaml path argument")?;
+    let config_path = matches
+        .get_one::<PathBuf>("config")
+        .cloned()
+        .ok_or("Missing required --config argument")?;
     let config = config::Config::load(&config_path)?;
 
     // Create build directory if it doesn't exist
@@ -62,7 +68,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let renderer = Renderer::new(&config);
 
-    let parent_dir = index_yaml_path.parent().unwrap();
+    let parent_dir = index_yaml_path
+        .parent()
+        .ok_or_else(|| format!("Index file has no parent directory: {}", index_yaml_path.display()))?;
     let output_base_dir = if let Ok(rel) = parent_dir.strip_prefix(&config.content_dir) {
         config.build_dir.join(rel)
     } else {
@@ -137,7 +145,10 @@ fn find_content_files(
         }
 
         // Try to load the content
-        match ContentMetadata::load(path.parent().unwrap(), config) {
+        let dir = path.parent().ok_or_else(|| {
+            format!("metadata.yaml has no parent directory: {}", path.display())
+        })?;
+        match ContentMetadata::load(dir, config) {
             Ok(metadata) => {
                 if metadata.kind == content_type {
                     content_items.push(metadata);

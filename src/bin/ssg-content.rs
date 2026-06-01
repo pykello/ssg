@@ -25,14 +25,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
 
     // Extract values from arguments
-    let path = PathBuf::from(matches.get_one::<String>("path").unwrap());
-    let config_path = matches.get_one::<PathBuf>("config").unwrap().clone();
+    let path = matches
+        .get_one::<String>("path")
+        .map(PathBuf::from)
+        .ok_or("Missing required 'path' argument")?;
+    let config_path = matches
+        .get_one::<PathBuf>("config")
+        .cloned()
+        .ok_or("Missing required --config argument")?;
     let config = config::Config::load(&config_path)?;
 
     fs::create_dir_all(&config.build_dir)?;
 
     let content = Content::load(&path, &config)
-        .expect("Failed to load content");
+        .map_err(|e| format!("Failed to load content from {}: {e}", path.display()))?;
 
     let renderer = Renderer::new(&config);
 
