@@ -67,19 +67,40 @@ impl Content {
 pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn Error>> {
     let content = std::fs::read_to_string(path)?;
     let base_dir = path.parent().unwrap_or(Path::new(""));
+    let canonical_base_dir = base_dir.canonicalize()?;
 
     let mut out = String::new();
     let lines: Vec<&str> = content.lines().collect();
     let ends_with_newline = content.ends_with('\n');
+    let mut in_fence = false;
 
     for (idx, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("#include") {
-            let include_path = trimmed.trim_start_matches("#include").trim();
-            let include_path = include_path.trim_matches('"');
-            let include_file = base_dir.join(include_path);
-            let included = std::fs::read_to_string(include_file)?;
-            out.push_str(&included);
+        if is_fence_line(line) {
+            in_fence = !in_fence;
+        }
+
+        if !in_fence {
+            if let Some(include_path) = parse_include_directive(line) {
+                let include_path = Path::new(include_path);
+                if include_path.is_absolute() {
+                    return Err(format!("Absolute include path is not allowed: {}", line).into());
+                }
+
+                let include_file = base_dir.join(include_path);
+                let canonical_include_file = include_file.canonicalize()?;
+                if !canonical_include_file.starts_with(&canonical_base_dir) {
+                    return Err(format!(
+                        "Include path escapes content directory: {}",
+                        include_path.display()
+                    )
+                    .into());
+                }
+
+                let included = std::fs::read_to_string(canonical_include_file)?;
+                out.push_str(&included);
+            } else {
+                out.push_str(line);
+            }
         } else {
             out.push_str(line);
         }
@@ -90,6 +111,24 @@ pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn
     }
 
     Ok(out)
+}
+
+fn is_fence_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("```") || line.starts_with("~~~")
+}
+
+fn parse_include_directive(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    let rest = trimmed.strip_prefix("#include")?.trim();
+    let rest = rest.strip_prefix('"')?;
+    let end_quote = rest.find('"')?;
+    let (include_path, trailing) = rest.split_at(end_quote);
+    if trailing[1..].trim().is_empty() {
+        Some(include_path)
+    } else {
+        None
+    }
 }
 
 fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
@@ -292,6 +331,44 @@ id: "test-page"
         } else {
             panic!("Expected Page content type");
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_markdown_include_ignored_inside_code_fence() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = TempDir::new()?;
+        let temp_path = temp_dir.path();
+        let md_path = temp_path.join("body.md");
+
+        fs::write(temp_path.join("part.md"), "Included text")?;
+        fs::write(
+            &md_path,
+            "```markdown\n#include \"part.md\"\n```\n\n#include \"part.md\"",
+        )?;
+
+        let output = load_markdown_with_includes(&md_path)?;
+
+        assert!(output.contains("```markdown\n#include \"part.md\"\n```"));
+        assert!(output.ends_with("Included text"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_markdown_include_rejects_parent_traversal() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = TempDir::new()?;
+        let content_dir = temp_dir.path().join("content");
+        fs::create_dir_all(&content_dir)?;
+        fs::write(temp_dir.path().join("secret.md"), "Secret")?;
+        let md_path = content_dir.join("body.md");
+        fs::write(&md_path, "#include \"../secret.md\"")?;
+
+        let err = load_markdown_with_includes(&md_path)
+            .expect_err("include traversal should be rejected")
+            .to_string();
+
+        assert!(err.contains("escapes content directory"));
 
         Ok(())
     }
