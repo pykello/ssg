@@ -84,9 +84,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let renderer = Renderer::new(&config);
 
-    let parent_dir = index_yaml_path
-        .parent()
-        .ok_or_else(|| format!("Index file has no parent directory: {}", index_yaml_path.display()))?;
+    let parent_dir = index_yaml_path.parent().ok_or_else(|| {
+        format!(
+            "Index file has no parent directory: {}",
+            index_yaml_path.display()
+        )
+    })?;
     let absolute_parent_dir = absolute_path(parent_dir)?;
     let absolute_content_dir = absolute_path(&config.content_dir)?;
     let output_base_dir = if let Ok(rel) = absolute_parent_dir.strip_prefix(&absolute_content_dir) {
@@ -107,11 +110,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut content_items = find_content_files(&search_path, index_config.content_type, &config)?;
 
     // Sort content by date (newest first) or title if date is not available
-    content_items.sort_by(|a, b| {
-        match (&a.timestamp, &b.timestamp) {
-            (Some(a_date), Some(b_date)) => b_date.cmp(a_date),
-            _ => a.title.cmp(&b.title),
-        }
+    content_items.sort_by(|a, b| match (&a.timestamp, &b.timestamp) {
+        (Some(a_date), Some(b_date)) => b_date.cmp(a_date),
+        _ => a.title.cmp(&b.title),
     });
 
     println!("Found {} content items", content_items.len());
@@ -157,30 +158,118 @@ fn find_content_files(
     for entry in WalkDir::new(base_path).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
 
-        // Skip directories and non-supported files
-        if path.is_dir() || path.file_name() != Some("metadata.yaml".as_ref()) {
+        if path.is_dir() {
             continue;
         }
 
-        // Try to load the content
-        let dir = path.parent().ok_or_else(|| {
-            format!("metadata.yaml has no parent directory: {}", path.display())
-        })?;
-        match ContentMetadata::load(dir, config) {
-            Ok(metadata) => {
-                if metadata.kind == content_type {
-                    content_items.push(metadata);
+        if path.file_name() == Some("metadata.yaml".as_ref()) {
+            let dir = path.parent().ok_or_else(|| {
+                format!("metadata.yaml has no parent directory: {}", path.display())
+            })?;
+            match ContentMetadata::load(dir, config) {
+                Ok(metadata) => {
+                    if metadata.kind == content_type {
+                        content_items.push(metadata);
+                    }
+                }
+                Err(err) => {
+                    println!(
+                        "Warning: Failed to load metadata from {}: {}",
+                        path.display(),
+                        err
+                    );
                 }
             }
-            Err(err) => {
-                println!(
-                    "Warning: Failed to load metadata from {}: {}",
-                    path.display(),
-                    err
-                );
+            continue;
+        }
+
+        if content_type == ContentKind::Page && is_bare_content_file(path) {
+            let has_directory_metadata = path
+                .parent()
+                .map(|parent| parent.join("metadata.yaml").exists())
+                .unwrap_or(false);
+            if has_directory_metadata {
+                continue;
+            }
+
+            match Content::load(path, config) {
+                Ok(content) => {
+                    if let Content::Page { metadata, .. } = content {
+                        content_items.push(metadata);
+                    }
+                }
+                Err(err) => {
+                    println!(
+                        "Warning: Failed to load bare page from {}: {}",
+                        path.display(),
+                        err
+                    );
+                }
             }
         }
     }
 
     Ok(content_items)
+}
+
+fn is_bare_content_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|ext| ext.to_str()),
+        Some("md" | "html" | "tex")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn find_content_files_includes_bare_pages() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempdir()?;
+        let content_dir = temp_dir.path().join("content");
+        let build_dir = temp_dir.path().join("build");
+        fs::create_dir_all(&content_dir)?;
+        fs::write(content_dir.join("about.md"), "# About\n\nBody")?;
+
+        let config = config::Config {
+            content_dir: content_dir.clone(),
+            build_dir,
+            ..Default::default()
+        };
+
+        let items = find_content_files(&content_dir, ContentKind::Page, &config)?;
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "About");
+        assert!(items[0].url.ends_with("/about.html"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn find_content_files_skips_bare_body_in_metadata_directory(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempdir()?;
+        let content_dir = temp_dir.path().join("content");
+        let build_dir = temp_dir.path().join("build");
+        let page_dir = content_dir.join("page");
+        fs::create_dir_all(&page_dir)?;
+        fs::write(page_dir.join("metadata.yaml"), "title: Page\ntype: page\n")?;
+        fs::write(page_dir.join("body.md"), "# Body\n")?;
+
+        let config = config::Config {
+            content_dir: content_dir.clone(),
+            build_dir,
+            ..Default::default()
+        };
+
+        let items = find_content_files(&content_dir, ContentKind::Page, &config)?;
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "Page");
+
+        Ok(())
+    }
 }
