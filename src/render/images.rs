@@ -2,7 +2,23 @@ use regex::{Captures, Regex};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use walkdir::WalkDir;
+
+static IMG_REGEX: OnceLock<Regex> = OnceLock::new();
+static CSS_URL_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn img_regex() -> &'static Regex {
+    IMG_REGEX.get_or_init(|| {
+        Regex::new(r#"<img\s+[^>]*src=["']([^"']+)["'][^>]*>"#).expect("valid img regex")
+    })
+}
+
+fn css_url_regex() -> &'static Regex {
+    CSS_URL_REGEX.get_or_init(|| {
+        Regex::new(r#"url\(['"]?([^'"\)]+)['"]?\)"#).expect("valid css url regex")
+    })
+}
 
 /// Finds all images in the given root directory.
 /// Returns a vector of paths relative to the root.
@@ -40,12 +56,8 @@ fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> Str
         .map(normalize_path)
         .collect();
 
-    // Regular expressions for HTML img tags and CSS url() references
-    let img_regex = Regex::new(r#"<img\s+[^>]*src=["']([^"']+)["'][^>]*>"#).unwrap();
-    let css_url_regex = Regex::new(r#"url\(['"]?([^'"\)]+)['"]?\)"#).unwrap();
-
     // Process img tags
-    let html = img_regex.replace_all(html, |caps: &Captures| {
+    let html = img_regex().replace_all(html, |caps: &Captures| {
         let full_match = &caps[0];
         let src = &caps[1];
 
@@ -58,7 +70,7 @@ fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> Str
     });
 
     // Process CSS url() references
-    let html = css_url_regex.replace_all(&html, |caps: &Captures| {
+    let html = css_url_regex().replace_all(&html, |caps: &Captures| {
         let full_match = &caps[0];
         let url_path = &caps[1];
 

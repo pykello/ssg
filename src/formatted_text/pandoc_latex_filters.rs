@@ -1,7 +1,17 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use super::formatted_text::Theorem;
+
+static CLEAN_LABELS_RE: OnceLock<Regex> = OnceLock::new();
+
+fn clean_labels_regex() -> &'static Regex {
+    CLEAN_LABELS_RE.get_or_init(|| {
+        Regex::new(r#"<span id="([\w:-]+)" label="([\w:-]+)">\[[\w:-]+\]</span>"#)
+            .expect("valid label span regex")
+    })
+}
 
 pub trait PandocFilter {
     fn preprocess(&mut self, input: &str) -> Result<String, String>;
@@ -26,13 +36,12 @@ impl EnvFilter {
     fn generate_theorem_regex(&self) -> Regex {
         let mut pattern = r"\\label\{[\w:-]+\}|\\ref\{[\w:-]+\}".to_string();
         pattern.push_str(r"|\\begin(\{[^}]*\})+|\\end\{\w+\}");
-        Regex::new(&pattern).unwrap()
+        Regex::new(&pattern).expect("valid theorem regex")
     }
 
     fn clean_labels(&mut self, input: &str) -> String {
         // Regex pattern to match <span id="X" label="X">[X]</span>
-        let re =
-            Regex::new(r#"<span id="([\w:-]+)" label="([\w:-]+)">\[[\w:-]+\]</span>"#).unwrap();
+        let re = clean_labels_regex();
 
         // Replace all matches with <span id="X" label="X"></span>
         let cleaned_html = re.replace_all(input, |caps: &regex::Captures| {

@@ -1,8 +1,22 @@
 use regex::Regex;
+use std::sync::OnceLock;
+
+static CARD_CLASS_RE: OnceLock<Regex> = OnceLock::new();
+static EXPAND_LINK_RE: OnceLock<Regex> = OnceLock::new();
+
+fn card_class_regex() -> &'static Regex {
+    CARD_CLASS_RE.get_or_init(|| Regex::new(r#"\[([^"]+)\]"#).expect("valid card class regex"))
+}
+
+fn expand_link_regex() -> &'static Regex {
+    EXPAND_LINK_RE
+        .get_or_init(|| Regex::new(r"\[([^\]]+)\]").expect("valid expand link regex"))
+}
 
 fn extract_class(line: &str) -> Option<String> {
-    let re = Regex::new(r#"\[([^"]+)\]"#).unwrap();
-    re.captures(line).map(|caps| caps[1].to_string())
+    card_class_regex()
+        .captures(line)
+        .map(|caps| caps[1].to_string())
 }
 
 pub fn preprocess_cards(markdown: &str) -> String {
@@ -39,9 +53,6 @@ pub fn preprocess_expandables(markdown: &str) -> String {
     let mut id_counter = 0;
     let mut lines = markdown.lines();
 
-    // Compiled once per call, not per iteration of the loop
-    let re = Regex::new(r"\[([^\]]+)\]").unwrap();
-
     while let Some(line) = lines.next() {
         if line.trim_start().starts_with(":::expandable") {
             // ── 1. Parse the heading line ────────────────────────────────
@@ -49,7 +60,7 @@ pub fn preprocess_expandables(markdown: &str) -> String {
             id_counter += 1;
             let id = format!("expand-{}", id_counter);
 
-            let heading_line = re
+            let heading_line = expand_link_regex()
                 .replace_all(heading_line, |caps: &regex::Captures| {
                     format!(
                         r#"<a class="expand-link" data-bs-toggle="collapse" href='#{id}'>{}</a>"#,
