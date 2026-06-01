@@ -1,6 +1,7 @@
 #[allow(clippy::module_inception)]
 mod formatted_text;
 mod markdown_expandable;
+mod markdown_math;
 mod pandoc_latex_filters;
 mod shell;
 

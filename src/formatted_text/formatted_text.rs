@@ -6,6 +6,7 @@ use crate::config::Config;
 
 use super::{
     markdown_expandable::{preprocess_cards, preprocess_expandables},
+    markdown_math::protect_math,
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
 };
@@ -89,11 +90,14 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
 
     let markdown = &preprocess_expandables(markdown);
     let markdown = &preprocess_cards(markdown);
-    let (markdown, math_segments) = if config.escape_markdown_in_math {
-        (markdown.to_string(), Vec::new())
+    let protected_math = if config.escape_markdown_in_math {
+        None
     } else {
-        extract_math_segments(markdown)
+        Some(protect_math(markdown))
     };
+    let markdown = protected_math
+        .as_ref()
+        .map_or(markdown.as_str(), |protected| protected.markdown());
 
     let mut plugins = comrak::Plugins::default();
     let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
@@ -101,86 +105,13 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     let adapter = builder.build();
     plugins.render.codefence_syntax_highlighter = Some(&adapter);
 
-    let mut html = comrak::markdown_to_html_with_plugins(&markdown, &options, &plugins);
+    let mut html = comrak::markdown_to_html_with_plugins(markdown, &options, &plugins);
 
-    if !math_segments.is_empty() {
-        html = restore_math_segments(&html, &math_segments);
+    if let Some(protected_math) = protected_math {
+        html = protected_math.restore(&html);
     }
 
     Ok(html)
-}
-
-fn extract_math_segments(markdown: &str) -> (String, Vec<String>) {
-    let chars: Vec<char> = markdown.chars().collect();
-    let mut i = 0;
-    let mut output = String::with_capacity(markdown.len());
-    let mut segments = Vec::new();
-
-    while i < chars.len() {
-        if chars[i] == '$' {
-            let prev_is_escape = i > 0 && chars[i - 1] == '\\';
-            if prev_is_escape {
-                output.push('$');
-                i += 1;
-                continue;
-            }
-
-            let delim_len = if i + 1 < chars.len() && chars[i + 1] == '$' {
-                2
-            } else {
-                1
-            };
-
-            let mut j = i + delim_len;
-            let mut closing_found = false;
-            while j < chars.len() {
-                if chars[j] == '\\' && j + 1 < chars.len() {
-                    j += 2;
-                    continue;
-                }
-
-                if chars[j] == '$' {
-                    let mut matched = true;
-                    for k in 1..delim_len {
-                        if j + k >= chars.len() || chars[j + k] != '$' {
-                            matched = false;
-                            break;
-                        }
-                    }
-
-                    if matched {
-                        closing_found = true;
-                        break;
-                    }
-                }
-
-                j += 1;
-            }
-
-            if closing_found {
-                let segment: String = chars[i..j + delim_len].iter().collect();
-                let placeholder = format!("MATHSEGMENTPLACEHOLDER{:06}", segments.len());
-                output.push_str(&placeholder);
-                segments.push(segment);
-                i = j + delim_len;
-                continue;
-            }
-        }
-
-        output.push(chars[i]);
-        i += 1;
-    }
-
-    (output, segments)
-}
-
-fn restore_math_segments(html: &str, segments: &[String]) -> String {
-    let mut restored = html.to_string();
-    for (idx, segment) in segments.iter().enumerate() {
-        let placeholder = format!("MATHSEGMENTPLACEHOLDER{:06}", idx);
-        restored = restored.replace(&placeholder, segment);
-    }
-    restored
 }
 
 #[cfg(test)]
@@ -448,6 +379,52 @@ second line"
         }
 
         assert!(!output.contains("MATHSEGMENTPLACEHOLDER"));
+    }
+
+    #[test]
+    fn test_quoted_display_math_stays_inside_alert() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = r#"> [!NOTE]
+> Intro.
+>
+> $$
+> f(x) = \begin{cases}
+>     1 & \text{if } x \ne 0 \\
+>     0 & \text{if } x = 0
+> \end{cases}
+> $$
+>
+> Done."#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r#"<div class="markdown-alert markdown-alert-note">"#));
+        assert!(!output.contains("<blockquote>"));
+        assert!(output.contains("f(x) = \\begin{cases}"));
+        assert!(!output.contains("> f(x)"));
+        assert!(output.contains("<p>Done.</p>"));
+        assert!(output.trim_end().ends_with("</div>"));
+    }
+
+    #[test]
+    fn test_markdown_escaped_math_operators_are_normalized() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = r#"$$
+\lim a_i
+\= b
+  \+ c
+$$"#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains("= b"));
+        assert!(output.contains("  + c"));
+        assert!(!output.contains(r"\= b"));
+        assert!(!output.contains(r"\+ c"));
     }
 
     #[test]
