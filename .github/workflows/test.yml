@@ -10,13 +10,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
-      - name: Install dependencies
+          components: clippy
+
+      # Cache cargo artifacts for faster subsequent runs
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pandoc
+
       - name: Check formatting
         run: cargo fmt -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
       - name: Run tests
         run: cargo test --verbose
+
+      # Smoke-test that a release build works end-to-end
+      - name: Build release
+        run: cargo build --release
+
+# Notes:
+# - pandoc is a hard runtime dependency for any LaTeX (.tex) content.
+# - Consider adding the rustsec/audit-check action (or cargo-audit step)
+#   in a follow-up to catch vulnerable dependencies on a schedule.
