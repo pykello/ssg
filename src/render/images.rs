@@ -8,6 +8,14 @@ use walkdir::WalkDir;
 static IMG_REGEX: OnceLock<Regex> = OnceLock::new();
 static CSS_URL_REGEX: OnceLock<Regex> = OnceLock::new();
 
+fn absolute_path(path: PathBuf) -> Result<PathBuf, Box<dyn Error>> {
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
 fn img_regex() -> &'static Regex {
     IMG_REGEX.get_or_init(|| {
         Regex::new(r#"<img\s+[^>]*src=["']([^"']+)["'][^>]*>"#).expect("valid img regex")
@@ -128,6 +136,9 @@ impl ImageProcessor {
         content_dir: PathBuf,
         build_dir: PathBuf,
     ) -> Result<Self, Box<dyn Error>> {
+        let path = absolute_path(path)?;
+        let content_dir = absolute_path(content_dir)?;
+
         let path = if path.is_dir() {
             path
         } else {
@@ -325,6 +336,27 @@ mod tests {
 
         // Test HTML updating
         let html = r#"<img src="figs/blue.png" alt="Blue"><p>Some text</p>"#;
+        let updated = processor.update_html_with_image_urls(html);
+        assert!(updated.contains("/static/assets/test_assets/problems/p1/figs/blue.png"));
+    }
+
+    #[test]
+    fn test_image_processor_accepts_absolute_content_path() {
+        let temp_dir = tempdir().unwrap();
+        let build_dir = temp_dir.path().join("build");
+        let cwd = std::env::current_dir().unwrap();
+        let content_dir = cwd.join("src");
+        let path = cwd.join("src/test_assets/problems/p1/problem.tex");
+
+        let mut processor = ImageProcessor::new(path, content_dir, build_dir.clone()).unwrap();
+
+        processor.copy_images_to_build_dir().unwrap();
+
+        let copied = build_dir
+            .join("static/assets/test_assets/problems/p1/figs/blue.png");
+        assert!(copied.exists());
+
+        let html = r#"<img src="figs/blue.png" alt="Blue">"#;
         let updated = processor.update_html_with_image_urls(html);
         assert!(updated.contains("/static/assets/test_assets/problems/p1/figs/blue.png"));
     }

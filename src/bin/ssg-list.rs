@@ -21,6 +21,14 @@ fn default_template() -> String {
     "list.html".to_string()
 }
 
+fn absolute_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct IndexConfig {
     title: Option<String>,
@@ -79,7 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let parent_dir = index_yaml_path
         .parent()
         .ok_or_else(|| format!("Index file has no parent directory: {}", index_yaml_path.display()))?;
-    let output_base_dir = if let Ok(rel) = parent_dir.strip_prefix(&config.content_dir) {
+    let absolute_parent_dir = absolute_path(parent_dir)?;
+    let absolute_content_dir = absolute_path(&config.content_dir)?;
+    let output_base_dir = if let Ok(rel) = absolute_parent_dir.strip_prefix(&absolute_content_dir) {
         config.build_dir.join(rel)
     } else {
         config.build_dir.join(parent_dir)
