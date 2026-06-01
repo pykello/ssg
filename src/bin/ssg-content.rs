@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let content = Content::load(&path, &config)
         .map_err(|e| format!("Failed to load content from {}: {e}", path.display()))?;
 
-    let renderer = Renderer::new(&config);
+    let renderer = Renderer::new(&config)?;
 
     let mut html = content.render_html(&renderer, &config)?;
     let mut image_processor = ImageProcessor::new(

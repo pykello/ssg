@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_content = fs::read_to_string(&index_yaml_path)?;
     let index_config: IndexConfig = serde_yaml::from_str(&config_content)?;
 
-    let renderer = Renderer::new(&config);
+    let renderer = Renderer::new(&config)?;
 
     let parent_dir = index_yaml_path.parent().ok_or_else(|| {
         format!(

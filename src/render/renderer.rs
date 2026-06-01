@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -12,24 +13,22 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config) -> Result<Self, Box<dyn Error>> {
         let templates_path = config.template_dir.join("**/*.html");
-        let mut tera = match Tera::new(&templates_path.to_string_lossy()) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Error parsing templates: {}", e);
-                std::process::exit(1);
-            }
-        };
+        let mut tera = Tera::new(&templates_path.to_string_lossy()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error parsing templates: {}", e),
+            )
+        })?;
 
         let translations: HashMap<String, String> = match &config.translations_csv {
-            Some(translations_file) => match load_translations(translations_file) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("Error loading translations: {}", e);
-                    std::process::exit(1);
-                }
-            },
+            Some(translations_file) => load_translations(translations_file).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error loading translations: {}", e),
+                )
+            })?,
             None => HashMap::new(),
         };
 
@@ -45,10 +44,10 @@ impl Renderer {
             }
         }
 
-        Self {
+        Ok(Self {
             tera,
             default_context,
-        }
+        })
     }
 
     pub fn render(
@@ -120,4 +119,70 @@ fn translate_to_tera(translations: HashMap<String, String>) -> impl Function {
             Ok(Value::String(translation))
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn new_returns_error_for_missing_templates() {
+        let temp_dir = tempdir().unwrap();
+        let template_dir = temp_dir.path().join("templates");
+        fs::create_dir_all(&template_dir).unwrap();
+        fs::write(template_dir.join("bad.html"), "{{").unwrap();
+        let config = Config {
+            template_dir,
+            ..Default::default()
+        };
+
+        let err = match Renderer::new(&config) {
+            Ok(_) => panic!("missing templates should return an error"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("Error parsing templates"));
+    }
+
+    #[test]
+    fn new_returns_error_for_missing_translations() {
+        let temp_dir = tempdir().unwrap();
+        let template_dir = temp_dir.path().join("templates");
+        fs::create_dir_all(&template_dir).unwrap();
+        fs::write(template_dir.join("page.html"), "{{ title }}").unwrap();
+        let config = Config {
+            template_dir,
+            translations_csv: Some(temp_dir.path().join("missing.csv")),
+            ..Default::default()
+        };
+
+        let err = match Renderer::new(&config) {
+            Ok(_) => panic!("missing translations should return an error"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("Error loading translations"));
+    }
+
+    #[test]
+    fn new_builds_renderer_for_valid_templates() -> Result<(), Box<dyn Error>> {
+        let temp_dir = tempdir()?;
+        let template_dir = temp_dir.path().join("templates");
+        fs::create_dir_all(&template_dir)?;
+        fs::write(template_dir.join("page.html"), "{{ title }}")?;
+        let config = Config {
+            template_dir,
+            ..Default::default()
+        };
+
+        let renderer = Renderer::new(&config)?;
+        let mut context = HashMap::new();
+        context.insert("title".to_string(), Value::String("Hello".to_string()));
+
+        assert_eq!(renderer.render("page.html", context)?, "Hello");
+
+        Ok(())
+    }
 }
