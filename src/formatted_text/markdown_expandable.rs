@@ -2,11 +2,7 @@ use regex::Regex;
 
 fn extract_class(line: &str) -> Option<String> {
     let re = Regex::new(r#"\[([^"]+)\]"#).unwrap();
-    if let Some(caps) = re.captures(line) {
-        Some(caps[1].to_string())
-    } else {
-        None
-    }
+    re.captures(line).map(|caps| caps[1].to_string())
 }
 
 pub fn preprocess_cards(markdown: &str) -> String {
@@ -15,11 +11,11 @@ pub fn preprocess_cards(markdown: &str) -> String {
 
     while let Some(line) = lines.next() {
         if line.trim_start().starts_with(":::card") {
-            let class = extract_class(line).unwrap_or_else(|| "".to_string());
+            let class = extract_class(line).unwrap_or_default();
 
             out.push_str(&format!(r#"<div class="card {class}">"#, class = class));
-            out.push_str("\n");
-            out.push_str("\n");
+            out.push('\n');
+            out.push('\n');
             for body in &mut lines {
                 if body.trim_start().starts_with(":::") {
                     break;
@@ -43,6 +39,9 @@ pub fn preprocess_expandables(markdown: &str) -> String {
     let mut id_counter = 0;
     let mut lines = markdown.lines();
 
+    // Compiled once per call, not per iteration of the loop
+    let re = Regex::new(r"\[([^\]]+)\]").unwrap();
+
     while let Some(line) = lines.next() {
         if line.trim_start().starts_with(":::expandable") {
             // ── 1. Parse the heading line ────────────────────────────────
@@ -50,7 +49,6 @@ pub fn preprocess_expandables(markdown: &str) -> String {
             id_counter += 1;
             let id = format!("expand-{}", id_counter);
 
-            let re = Regex::new(r"\[([^\]]+)\]").unwrap();
             let heading_line = re
                 .replace_all(heading_line, |caps: &regex::Captures| {
                     format!(

@@ -23,7 +23,7 @@ impl Renderer {
         };
 
         let translations: HashMap<String, String> = match &config.translations_csv {
-            Some(translations_file) => match load_translations(&translations_file) {
+            Some(translations_file) => match load_translations(translations_file) {
                 Ok(t) => t,
                 Err(e) => {
                     eprintln!("Error loading translations: {}", e);

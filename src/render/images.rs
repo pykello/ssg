@@ -37,7 +37,7 @@ fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> Str
     // Create a set of normalized paths for efficient lookup
     let normalized_paths: Vec<String> = image_paths
         .iter()
-        .map(|path| normalize_path(path))
+        .map(normalize_path)
         .collect();
 
     // Regular expressions for HTML img tags and CSS url() references

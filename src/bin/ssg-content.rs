@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&config.build_dir)?;
 
     let content = Content::load(&path, &config)
-        .expect(&format!("Failed to load content from {}", path.display()));
+        .expect("Failed to load content");
 
     let renderer = Renderer::new(&config);
 

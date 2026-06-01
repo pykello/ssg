@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+#[allow(clippy::module_inception)]
 mod content;
 mod metadata;
 mod problem;

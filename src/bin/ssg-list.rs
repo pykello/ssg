@@ -64,9 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let parent_dir = index_yaml_path.parent().unwrap();
     let output_base_dir = if let Ok(rel) = parent_dir.strip_prefix(&config.content_dir) {
-        config.build_dir.join(rel.to_path_buf())
+        config.build_dir.join(rel)
     } else {
-        config.build_dir.join(parent_dir.to_path_buf())
+        config.build_dir.join(parent_dir)
     };
 
     println!("Base content path: {}", output_base_dir.display());
@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let search_path = if let Some(path) = index_config.path {
         parent_dir.join(path)
     } else {
-        parent_dir.to_path_buf()
+        parent_dir.to_owned()
     };
 
     // Find all content files of the specified type recursively
@@ -82,11 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sort content by date (newest first) or title if date is not available
     content_items.sort_by(|a, b| {
-        let a_date = a.timestamp.clone();
-        let b_date = b.timestamp.clone();
-
-        match (a_date, b_date) {
-            (Some(a_date), Some(b_date)) => b_date.cmp(&a_date),
+        match (&a.timestamp, &b.timestamp) {
+            (Some(a_date), Some(b_date)) => b_date.cmp(a_date),
             _ => a.title.cmp(&b.title),
         }
     });

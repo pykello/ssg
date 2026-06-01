@@ -17,14 +17,14 @@ impl Content {
                 hints,
             } => {
                 // Convert FormattedText to HTML strings
-                let problem_html = statement.to_html(&config)?;
+                let problem_html = statement.to_html(config)?;
                 let solution_htmls: Vec<String> = solutions
                     .iter()
-                    .filter_map(|s| s.to_html(&config).ok())
+                    .filter_map(|s| s.to_html(config).ok())
                     .collect();
                 let hint_htmls: Vec<String> = hints
                     .iter()
-                    .filter_map(|h| h.to_html(&config).ok())
+                    .filter_map(|h| h.to_html(config).ok())
                     .collect();
 
                 let mut context = HashMap::new();
@@ -55,10 +55,10 @@ impl Content {
                 }
 
                 // Render the problem template
-                renderer.render(&template, context).map_err(|e| e.into())
+                renderer.render(&template, context)
             }
             Content::Blog { metadata, body } => {
-                let body_html = body.to_html(&config)?;
+                let body_html = body.to_html(config)?;
                 let mut context = HashMap::new();
                 let template = if let Some(template) = &metadata.template {
                     template.clone()
@@ -85,10 +85,10 @@ impl Content {
                 }
 
                 // Render the blog template
-                renderer.render(&template, context).map_err(|e| e.into())
+                renderer.render(&template, context)
             }
             Content::Page { metadata, body } => {
-                let body_html = body.to_html(&config)?;
+                let body_html = body.to_html(config)?;
                 let mut context = HashMap::new();
                 let template = if let Some(template) = &metadata.template {
                     template.clone()
@@ -112,7 +112,7 @@ impl Content {
                 }
 
                 // Render the page template - simpler than blog template
-                renderer.render(&template, context).map_err(|e| e.into())
+                renderer.render(&template, context)
             }
         }
     }

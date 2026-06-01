@@ -94,15 +94,17 @@ pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn
 
 fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
     let extension = path.extension().and_then(|s| s.to_str());
-    let mut metadata = ContentMetadata::default();
-    metadata.kind = ContentKind::Page;
-    metadata.output_path = content_output_path(path, config)?;
-    metadata.url = content_url(path, config)?;
+    let mut metadata = ContentMetadata {
+        kind: ContentKind::Page,
+        output_path: content_output_path(path, config)?,
+        url: content_url(path, config)?,
+        ..Default::default()
+    };
     match extension {
         Some("md") => {
             let text = load_markdown_with_includes(path)?;
             let lines = text.lines().collect::<Vec<_>>();
-            if lines.len() > 0 && (lines[0].starts_with("# ") || lines[0].starts_with("## ")) {
+            if !lines.is_empty() && (lines[0].starts_with("# ") || lines[0].starts_with("## ")) {
                 metadata.title = lines[0]
                     .replace("## ", "")
                     .replace("# ", "")
@@ -110,21 +112,21 @@ fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error
                     .to_string();
             }
             Ok(Content::Page {
-                metadata: metadata,
+                metadata,
                 body: FormattedText::Markdown(text),
             })
         }
         Some("tex") => {
             let text = std::fs::read_to_string(path)?;
             Ok(Content::Page {
-                metadata: metadata,
+                metadata,
                 body: FormattedText::Latex(text),
             })
         }
         Some("html") => {
             let text = std::fs::read_to_string(path)?;
             Ok(Content::Page {
-                metadata: metadata,
+                metadata,
                 body: FormattedText::Html(text),
             })
         }

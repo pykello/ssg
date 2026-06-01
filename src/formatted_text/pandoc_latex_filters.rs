@@ -66,9 +66,8 @@ impl PandocFilter for EnvFilter {
             if s.starts_with(r"\begin") {
                 let env_name: &str = s
                     .trim_start_matches(r"\begin{")
-                    .splitn(2, '}')
-                    .next()
-                    .unwrap_or("");
+                    .split_once('}')
+                    .map_or("", |(name, _)| name);
                 env_stack.push(env_name.to_string());
                 if self.theorems.contains_key(env_name) {
                     let theorem = &self.theorems[env_name];
@@ -120,7 +119,7 @@ impl PandocFilter for EnvFilter {
                     ));
                 }
                 if self.theorems.contains_key(env_name) {
-                    result.push_str("\n");
+                    result.push('\n');
                 } else if env_name == "equation" {
                     result.push_str(r"\end{equation}$$");
                 } else {

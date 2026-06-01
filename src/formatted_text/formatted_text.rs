@@ -61,7 +61,7 @@ fn latex_to_html(latex: &str, theorems: &[Theorem]) -> Result<String, String> {
     let pandoc_output = run_with_timeout(
         "pandoc",
         &["--from=latex", "--to=html", "--mathjax"],
-        Some(&preprocessed.as_str()),
+        Some(preprocessed.as_str()),
         Duration::from_secs(1),
     );
 
@@ -206,7 +206,7 @@ mod test_latex_to_html {
     #[test]
     fn retains_equation_blocks() {
         let input = r#"\begin{equation}\label{inequality:first}\frac{1}{x}\end{equation}"#;
-        let result = latex_to_html(&input, &[]);
+        let result = latex_to_html(input, &[]);
         assert!(result.is_ok());
         let output = result.unwrap();
         println!("{}", output);
@@ -221,7 +221,7 @@ mod test_latex_to_html {
         \begin{equation}\label{inequality:first}\end{equation}
         \begin{equation}\label{inequality:second}\end{equation}
         Inequality~\ref{inequality:first} and Inequality~\ref{inequality:second}."#;
-        let result = latex_to_html(&input, &[]);
+        let result = latex_to_html(input, &[]);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains(r"\ref{inequality:first}"));
@@ -238,7 +238,7 @@ mod test_latex_to_html {
     1 & 2 \\ \hline
   \end{tabular}
 \end{table}"#;
-        let result = latex_to_html(&input, &[]);
+        let result = latex_to_html(input, &[]);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<table>"));
@@ -256,7 +256,7 @@ mod test_latex_to_html {
             label: "Theorem".to_string(),
             numbered: true,
         }];
-        let result = latex_to_html(&input, &theorems);
+        let result = latex_to_html(input, &theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<strong>Theorem 1</strong>. "));
@@ -267,7 +267,7 @@ mod test_latex_to_html {
     #[test]
     fn ignores_unknown_environments() {
         let input = r#"\begin{solution} Something \end{solution}"#;
-        let result = latex_to_html(&input, &[]);
+        let result = latex_to_html(input, &[]);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<p>Something</p>"));
@@ -282,7 +282,7 @@ mod test_latex_to_html {
             label: "Theorem".to_string(),
             numbered: true,
         }];
-        let result = latex_to_html(&input, &theorems);
+        let result = latex_to_html(input, &theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<p>We have a problem</p>"));
@@ -296,7 +296,7 @@ mod test_latex_to_html {
             label: "Theorem".to_string(),
             numbered: true,
         }];
-        let result = latex_to_html(&input, &theorems);
+        let result = latex_to_html(input, &theorems);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("<p>Some text</p>"));

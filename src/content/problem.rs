@@ -26,10 +26,10 @@ pub fn load_problem(
     let hints = load_multiple_files(base_path, "hint")?;
 
     Ok(Content::Problem {
-        metadata: metadata,
+        metadata,
         statement: problem,
-        solutions: solutions,
-        hints: hints,
+        solutions,
+        hints,
     })
 }
 
