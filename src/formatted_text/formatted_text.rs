@@ -44,14 +44,23 @@ impl Theorem {
 impl FormattedText {
     pub fn to_html(&self, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
         match self {
-            FormattedText::Latex(s) => latex_to_html(s, &config.theorems).map_err(Into::into),
+            FormattedText::Latex(s) => latex_to_html(
+                s,
+                &config.theorems,
+                Duration::from_secs(config.pandoc_timeout_seconds),
+            )
+            .map_err(Into::into),
             FormattedText::Markdown(s) => markdown_to_html(s, config).map_err(Into::into),
             FormattedText::Html(s) => Ok(s.clone()),
         }
     }
 }
 
-fn latex_to_html(latex: &str, theorems: &[Theorem]) -> Result<String, String> {
+fn latex_to_html(
+    latex: &str,
+    theorems: &[Theorem],
+    pandoc_timeout: Duration,
+) -> Result<String, String> {
     let mut filters: Vec<Box<dyn PandocFilter>> = vec![Box::new(EnvFilter::new(theorems.to_vec()))];
 
     let mut preprocessed = latex.to_string();
@@ -63,7 +72,7 @@ fn latex_to_html(latex: &str, theorems: &[Theorem]) -> Result<String, String> {
         "pandoc",
         &["--from=latex", "--to=html", "--mathjax"],
         Some(preprocessed.as_str()),
-        Duration::from_secs(1),
+        pandoc_timeout,
     );
 
     pandoc_output.map(|output| {
@@ -117,6 +126,10 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
 #[cfg(test)]
 mod test_latex_to_html {
     use super::*;
+
+    fn latex_to_html(latex: &str, theorems: &[Theorem]) -> Result<String, String> {
+        super::latex_to_html(latex, theorems, Duration::from_secs(10))
+    }
 
     #[test]
     fn basic_checks() {
