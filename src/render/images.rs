@@ -23,9 +23,8 @@ fn img_regex() -> &'static Regex {
 }
 
 fn css_url_regex() -> &'static Regex {
-    CSS_URL_REGEX.get_or_init(|| {
-        Regex::new(r#"url\(['"]?([^'"\)]+)['"]?\)"#).expect("valid css url regex")
-    })
+    CSS_URL_REGEX
+        .get_or_init(|| Regex::new(r#"url\(['"]?([^'"\)]+)['"]?\)"#).expect("valid css url regex"))
 }
 
 /// Finds all images in the given root directory.
@@ -59,10 +58,7 @@ fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 // Modifies HTML content by prefixing image URLs with a root URL if they match any of the provided image paths.
 fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> String {
     // Create a set of normalized paths for efficient lookup
-    let normalized_paths: Vec<String> = image_paths
-        .iter()
-        .map(normalize_path)
-        .collect();
+    let normalized_paths: Vec<String> = image_paths.iter().map(normalize_path).collect();
 
     // Process img tags
     let html = img_regex().replace_all(html, |caps: &Captures| {
@@ -352,8 +348,7 @@ mod tests {
 
         processor.copy_images_to_build_dir().unwrap();
 
-        let copied = build_dir
-            .join("static/assets/test_assets/problems/p1/figs/blue.png");
+        let copied = build_dir.join("static/assets/test_assets/problems/p1/figs/blue.png");
         assert!(copied.exists());
 
         let html = r#"<img src="figs/blue.png" alt="Blue">"#;
