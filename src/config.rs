@@ -16,6 +16,10 @@ fn default_escape_markdown_in_math() -> bool {
     true
 }
 
+fn default_math_shorthand() -> bool {
+    false
+}
+
 /*
  * Options:
  * `base16-ocean.dark`,`base16-eighties.dark`,`base16-mocha.dark`,`base16-ocean.light`
@@ -53,6 +57,9 @@ pub struct Config {
     #[serde(default = "default_escape_markdown_in_math")]
     pub escape_markdown_in_math: bool,
 
+    #[serde(default = "default_math_shorthand")]
+    pub math_shorthand: bool,
+
     #[serde(default = "default_pandoc_timeout_seconds")]
     pub pandoc_timeout_seconds: u64,
 }
@@ -70,6 +77,7 @@ impl Default for Config {
             context: None,
             theorems: Vec::new(),
             escape_markdown_in_math: default_escape_markdown_in_math(),
+            math_shorthand: default_math_shorthand(),
             pandoc_timeout_seconds: default_pandoc_timeout_seconds(),
         }
     }
@@ -95,6 +103,7 @@ mod tests {
         assert_eq!(config.language, "en");
         assert_eq!(config.text_direction, "ltr");
         assert!(config.escape_markdown_in_math);
+        assert!(!config.math_shorthand);
         assert_eq!(config.pandoc_timeout_seconds, 10);
     }
 

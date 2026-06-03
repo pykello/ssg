@@ -6,7 +6,7 @@ use crate::config::Config;
 
 use super::{
     markdown_expandable::{preprocess_cards, preprocess_expandables},
-    markdown_math::protect_math,
+    markdown_math::{preprocess_math_shorthand_blocks, protect_math},
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
 };
@@ -97,16 +97,24 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.parse.smart = true;
     options.render.unsafe_ = true;
 
-    let markdown = &preprocess_expandables(markdown);
-    let markdown = &preprocess_cards(markdown);
+    let shorthand_markdown;
+    let markdown = if config.math_shorthand {
+        shorthand_markdown = preprocess_math_shorthand_blocks(markdown);
+        shorthand_markdown.as_str()
+    } else {
+        markdown
+    };
+    let expanded_markdown = preprocess_expandables(markdown);
+    let card_markdown = preprocess_cards(&expanded_markdown);
+    let markdown = card_markdown.as_str();
     let protected_math = if config.escape_markdown_in_math {
         None
     } else {
-        Some(protect_math(markdown))
+        Some(protect_math(markdown, config.math_shorthand))
     };
     let markdown = protected_math
         .as_ref()
-        .map_or(markdown.as_str(), |protected| protected.markdown());
+        .map_or(markdown, |protected| protected.markdown());
 
     let mut plugins = comrak::Plugins::default();
     let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
@@ -438,6 +446,64 @@ $$"#;
         assert!(output.contains("  + c"));
         assert!(!output.contains(r"\= b"));
         assert!(!output.contains(r"\+ c"));
+    }
+
+    #[test]
+    fn test_math_shorthand_is_config_gated() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let output = markdown_to_html("$norm(v{x}) <= eps$", &config).unwrap();
+
+        assert!(output.contains("$norm(v{x}) <= eps$"));
+
+        config.math_shorthand = true;
+        let output = markdown_to_html("$norm(v{x}) <= eps$", &config).unwrap();
+
+        assert!(output.contains(r"$\left\lVert \mathbf{x} \right\rVert \le \epsilon$"));
+    }
+
+    #[test]
+    fn test_math_shorthand_blocks_are_config_gated() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+        let input = r#":::align
+v{x} &= v{y}
+&=> norm(v{x}) <= eps
+:::"#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+        assert!(output.contains(":::align"));
+
+        config.math_shorthand = true;
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"\begin{align*}"));
+        assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
+        assert!(output.contains(r"&\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon"));
+        assert!(!output.contains(":::align"));
+    }
+
+    #[test]
+    fn test_math_shorthand_blocks_work_inside_expandables() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+        config.math_shorthand = true;
+        let input = r#":::expandable
+**Proof.** [Click]
+
+:::align
+v{x} &= v{y}
+&=> norm(v{x}) <= eps
+:::
+::::"#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r#"class="collapse""#));
+        assert!(output.contains(r"\begin{align*}"));
+        assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
+        assert!(!output.contains(":::align"));
     }
 
     #[test]

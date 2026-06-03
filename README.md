@@ -44,8 +44,13 @@ See the generated `config.yaml`. Common fields:
 
 - `theorems` — custom LaTeX environments
 - `escape_markdown_in_math: false`
+- `math_shorthand: true` — expand compact math notation inside math segments
 - `translations_csv`
 - `context` — extra values available in templates
+
+## Math Shorthand
+
+See [docs/math-shorthand.md](docs/math-shorthand.md).
 
 ## Templates
 
