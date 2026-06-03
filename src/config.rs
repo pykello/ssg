@@ -1,6 +1,9 @@
 use serde::Deserialize;
 use serde_yaml::Value;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::formatted_text::Theorem;
 
@@ -84,7 +87,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn load(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let config_str = std::fs::read_to_string(path)?;
         let config: Config = serde_yaml::from_str(&config_str)?;
 

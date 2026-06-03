@@ -14,39 +14,13 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(config: &Config) -> Result<Self, Box<dyn Error>> {
-        let templates_path = config.template_dir.join("**/*.html");
-        let mut tera = Tera::new(&templates_path.to_string_lossy()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Error parsing templates: {}", e),
-            )
-        })?;
-
-        let translations: HashMap<String, String> = match &config.translations_csv {
-            Some(translations_file) => load_translations(translations_file).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Error loading translations: {}", e),
-                )
-            })?,
-            None => HashMap::new(),
-        };
-
+        let mut tera = load_templates(config)?;
+        let translations = load_configured_translations(config)?;
         tera.register_function("translate", translate_to_tera(translations));
-
-        let mut default_context = Context::new();
-        default_context.insert("text_direction", &config.text_direction);
-        default_context.insert("language", &config.language);
-
-        if let Some(context) = &config.context {
-            for (key, value) in context {
-                default_context.insert(key, &value);
-            }
-        }
 
         Ok(Self {
             tera,
-            default_context,
+            default_context: build_default_context(config),
         })
     }
 
@@ -56,9 +30,7 @@ impl Renderer {
         custom_context: HashMap<String, Value>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut context = self.default_context.clone();
-        for (key, value) in custom_context {
-            context.insert(key, &value);
-        }
+        merge_render_context(&mut context, custom_context);
 
         match self.tera.render(template_name, &context) {
             Ok(s) => Ok(s),
@@ -70,7 +42,53 @@ impl Renderer {
     }
 }
 
-fn strip(s: &str) -> String {
+fn load_templates(config: &Config) -> Result<Tera, Box<dyn Error>> {
+    let templates_path = config.template_dir.join("**/*.html");
+    Tera::new(&templates_path.to_string_lossy()).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Error parsing templates: {}", e),
+        )
+        .into()
+    })
+}
+
+fn load_configured_translations(
+    config: &Config,
+) -> Result<HashMap<String, String>, Box<dyn Error>> {
+    match &config.translations_csv {
+        Some(translations_file) => load_translations(translations_file).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error loading translations: {}", e),
+            )
+            .into()
+        }),
+        None => Ok(HashMap::new()),
+    }
+}
+
+fn build_default_context(config: &Config) -> Context {
+    let mut context = Context::new();
+    context.insert("text_direction", &config.text_direction);
+    context.insert("language", &config.language);
+
+    if let Some(extra_context) = &config.context {
+        for (key, value) in extra_context {
+            context.insert(key, value);
+        }
+    }
+
+    context
+}
+
+fn merge_render_context(context: &mut Context, custom_context: HashMap<String, Value>) {
+    for (key, value) in custom_context {
+        context.insert(key, &value);
+    }
+}
+
+fn strip_csv_quotes(s: &str) -> String {
     let mut s = s.trim();
     if s.starts_with('"') {
         s = &s[1..];
@@ -92,10 +110,9 @@ fn load_translations(path: &Path) -> Result<HashMap<String, String>, Box<dyn std
             continue; // Skip empty lines and comments
         }
 
-        // Split by first comma (CSV format)
         if let Some(pos) = line.find(',') {
-            let key = strip(&line[..pos]);
-            let value = strip(&line[(pos + 1)..]);
+            let key = strip_csv_quotes(&line[..pos]);
+            let value = strip_csv_quotes(&line[(pos + 1)..]);
             translations.insert(key, value);
         }
     }

@@ -4,6 +4,8 @@ use crate::formatted_text::FormattedText;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
+const BODY_BASENAME: &str = "body";
+
 #[derive(Debug)]
 pub enum Content {
     Problem {
@@ -23,31 +25,11 @@ pub enum Content {
 }
 
 impl Content {
-    // Factory function to load content based on type
     pub fn load(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
-        if !path.is_dir() {
-            return load_bare_page(path, config);
-        }
-
-        let metadata = ContentMetadata::load(path, config)?;
-
-        match metadata.kind {
-            ContentKind::Problem => super::problem::load_problem(path, metadata),
-            ContentKind::Blog => {
-                load_single_content_file(path, metadata, "body", |metadata, body| Content::Blog {
-                    metadata,
-                    body,
-                })
-            }
-            ContentKind::Page => {
-                load_single_content_file(path, metadata, "body", |metadata, body| Content::Page {
-                    metadata,
-                    body,
-                })
-            }
-            ContentKind::Unknown => {
-                Err(format!("Unknown content type: {:?}", metadata.kind).into())
-            }
+        if path.is_dir() {
+            load_directory_content(path, config)
+        } else {
+            load_bare_page(path, config)
         }
     }
 
@@ -57,6 +39,25 @@ impl Content {
             Content::Blog { metadata, .. } => metadata,
             Content::Page { metadata, .. } => metadata,
         }
+    }
+}
+
+fn load_directory_content(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
+    let metadata = ContentMetadata::load(path, config)?;
+
+    match metadata.kind {
+        ContentKind::Problem => super::problem::load_problem(path, metadata),
+        ContentKind::Blog => {
+            load_single_content_file(path, metadata, BODY_BASENAME, |metadata, body| {
+                Content::Blog { metadata, body }
+            })
+        }
+        ContentKind::Page => {
+            load_single_content_file(path, metadata, BODY_BASENAME, |metadata, body| {
+                Content::Page { metadata, body }
+            })
+        }
+        ContentKind::Unknown => Err(format!("Unknown content type: {:?}", metadata.kind).into()),
     }
 }
 
@@ -79,28 +80,10 @@ pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn
             in_fence = !in_fence;
         }
 
-        if !in_fence {
-            if let Some(include_path) = parse_include_directive(line) {
-                let include_path = Path::new(include_path);
-                if include_path.is_absolute() {
-                    return Err(format!("Absolute include path is not allowed: {}", line).into());
-                }
-
-                let include_file = base_dir.join(include_path);
-                let canonical_include_file = include_file.canonicalize()?;
-                if !canonical_include_file.starts_with(&canonical_base_dir) {
-                    return Err(format!(
-                        "Include path escapes content directory: {}",
-                        include_path.display()
-                    )
-                    .into());
-                }
-
-                let included = std::fs::read_to_string(canonical_include_file)?;
-                out.push_str(&included);
-            } else {
-                out.push_str(line);
-            }
+        if in_fence {
+            out.push_str(line);
+        } else if let Some(included) = load_include_for_line(line, base_dir, &canonical_base_dir)? {
+            out.push_str(&included);
         } else {
             out.push_str(line);
         }
@@ -111,6 +94,33 @@ pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn
     }
 
     Ok(out)
+}
+
+fn load_include_for_line(
+    line: &str,
+    base_dir: &Path,
+    canonical_base_dir: &Path,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let Some(include_path) = parse_include_directive(line) else {
+        return Ok(None);
+    };
+
+    let include_path = Path::new(include_path);
+    if include_path.is_absolute() {
+        return Err(format!("Absolute include path is not allowed: {}", line).into());
+    }
+
+    let include_file = base_dir.join(include_path);
+    let canonical_include_file = include_file.canonicalize()?;
+    if !canonical_include_file.starts_with(canonical_base_dir) {
+        return Err(format!(
+            "Include path escapes content directory: {}",
+            include_path.display()
+        )
+        .into());
+    }
+
+    Ok(Some(std::fs::read_to_string(canonical_include_file)?))
 }
 
 fn is_fence_line(line: &str) -> bool {
@@ -132,48 +142,60 @@ fn parse_include_directive(line: &str) -> Option<&str> {
 }
 
 fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
-    let extension = path.extension().and_then(|s| s.to_str());
-    let mut metadata = ContentMetadata {
+    let mut metadata = bare_page_metadata(path, config)?;
+    let body = load_bare_page_body(path, &mut metadata)?;
+
+    Ok(Content::Page { metadata, body })
+}
+
+fn bare_page_metadata(path: &Path, config: &Config) -> Result<ContentMetadata, Box<dyn Error>> {
+    Ok(ContentMetadata {
         kind: ContentKind::Page,
         output_path: content_output_path(path, config)?,
         url: content_url(path, config)?,
         ..Default::default()
-    };
-    match extension {
+    })
+}
+
+fn load_bare_page_body(
+    path: &Path,
+    metadata: &mut ContentMetadata,
+) -> Result<FormattedText, Box<dyn Error>> {
+    match path.extension().and_then(|s| s.to_str()) {
         Some("md") => {
             let text = load_markdown_with_includes(path)?;
-            let lines = text.lines().collect::<Vec<_>>();
-            if !lines.is_empty() && (lines[0].starts_with("# ") || lines[0].starts_with("## ")) {
-                metadata.title = lines[0]
-                    .replace("## ", "")
-                    .replace("# ", "")
-                    .trim()
-                    .to_string();
+            if let Some(title) = first_markdown_heading(&text) {
+                metadata.title = title;
             }
-            Ok(Content::Page {
-                metadata,
-                body: FormattedText::Markdown(text),
-            })
+            Ok(FormattedText::Markdown(text))
         }
         Some("tex") => {
             let text = std::fs::read_to_string(path)?;
-            Ok(Content::Page {
-                metadata,
-                body: FormattedText::Latex(text),
-            })
+            Ok(FormattedText::Latex(text))
         }
         Some("html") => {
             let text = std::fs::read_to_string(path)?;
-            Ok(Content::Page {
-                metadata,
-                body: FormattedText::Html(text),
-            })
+            Ok(FormattedText::Html(text))
         }
-        _ => Err(format!("Unsupported file type: {:?}", extension).into()),
+        extension => Err(format!("Unsupported file type: {:?}", extension).into()),
     }
 }
 
-/// Helper function to load a single content file (used by Blog and Page types)
+fn first_markdown_heading(markdown: &str) -> Option<String> {
+    let first_line = markdown.lines().next()?;
+    if first_line.starts_with("# ") || first_line.starts_with("## ") {
+        Some(
+            first_line
+                .replace("## ", "")
+                .replace("# ", "")
+                .trim()
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
 fn load_single_content_file<F>(
     base_path: &Path,
     metadata: ContentMetadata,
@@ -183,26 +205,30 @@ fn load_single_content_file<F>(
 where
     F: FnOnce(ContentMetadata, FormattedText) -> Content,
 {
-    use std::fs;
+    let content = load_named_content_file(base_path, file_basename)?;
+    Ok(constructor(metadata, content))
+}
 
+fn load_named_content_file(
+    base_path: &Path,
+    file_basename: &str,
+) -> Result<FormattedText, Box<dyn Error>> {
     let md_file = base_path.join(format!("{}.md", file_basename));
     let tex_file = base_path.join(format!("{}.tex", file_basename));
     let html_file = base_path.join(format!("{}.html", file_basename));
 
-    let content = if md_file.exists() {
+    if md_file.exists() {
         let text = load_markdown_with_includes(&md_file)?;
-        FormattedText::Markdown(text)
+        Ok(FormattedText::Markdown(text))
     } else if tex_file.exists() {
-        let text = fs::read_to_string(tex_file)?;
-        FormattedText::Latex(text)
+        let text = std::fs::read_to_string(tex_file)?;
+        Ok(FormattedText::Latex(text))
     } else if html_file.exists() {
-        let text = fs::read_to_string(html_file)?;
-        FormattedText::Html(text)
+        let text = std::fs::read_to_string(html_file)?;
+        Ok(FormattedText::Html(text))
     } else {
-        return Err(format!("No {} file found", file_basename).into());
-    };
-
-    Ok(constructor(metadata, content))
+        Err(format!("No {} file found", file_basename).into())
+    }
 }
 
 pub fn content_output_path(

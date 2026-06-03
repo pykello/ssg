@@ -6,7 +6,7 @@ use crate::config::Config;
 
 use super::{
     markdown_expandable::{preprocess_cards, preprocess_expandables},
-    markdown_math::{preprocess_math_shorthand_blocks, protect_math},
+    markdown_math::{preprocess_math_shorthand_blocks, protect_math, ProtectedMath},
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
 };
@@ -61,33 +61,96 @@ fn latex_to_html(
     theorems: &[Theorem],
     pandoc_timeout: Duration,
 ) -> Result<String, String> {
-    let mut filters: Vec<Box<dyn PandocFilter>> = vec![Box::new(EnvFilter::new(theorems.to_vec()))];
+    let mut filters = latex_filters(theorems);
+    let preprocessed = apply_latex_preprocessors(latex, &mut filters)?;
+    let pandoc_output = run_pandoc_latex(&preprocessed, pandoc_timeout)?;
+    Ok(apply_latex_postprocessors(&pandoc_output, &mut filters))
+}
 
+fn latex_filters(theorems: &[Theorem]) -> Vec<Box<dyn PandocFilter>> {
+    vec![Box::new(EnvFilter::new(theorems.to_vec()))]
+}
+
+fn apply_latex_preprocessors(
+    latex: &str,
+    filters: &mut [Box<dyn PandocFilter>],
+) -> Result<String, String> {
     let mut preprocessed = latex.to_string();
-    for filter in &mut filters {
+    for filter in filters.iter_mut() {
         preprocessed = filter.preprocess(&preprocessed)?;
     }
+    Ok(preprocessed)
+}
 
-    let pandoc_output = run_with_timeout(
+fn run_pandoc_latex(latex: &str, timeout: Duration) -> Result<String, String> {
+    run_with_timeout(
         "pandoc",
         &["--from=latex", "--to=html", "--mathjax"],
-        Some(preprocessed.as_str()),
-        pandoc_timeout,
-    );
+        Some(latex),
+        timeout,
+    )
+}
 
-    pandoc_output.map(|output| {
-        let mut postprocessed = output.to_string();
-        for filter in &mut filters.iter_mut().rev() {
-            match filter.postprocess(&postprocessed) {
-                Ok(new_output) => postprocessed = new_output,
-                Err(_) => break,
-            }
+fn apply_latex_postprocessors(
+    pandoc_output: &str,
+    filters: &mut [Box<dyn PandocFilter>],
+) -> String {
+    let mut postprocessed = pandoc_output.to_string();
+    for filter in filters.iter_mut().rev() {
+        match filter.postprocess(&postprocessed) {
+            Ok(new_output) => postprocessed = new_output,
+            Err(_) => break,
         }
-        postprocessed
-    })
+    }
+    postprocessed
 }
 
 fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
+    let markdown = preprocess_markdown(markdown, config);
+    let protected_math = protect_markdown_math(&markdown, config);
+    let markdown = protected_math
+        .as_ref()
+        .map_or(markdown.as_str(), |protected| protected.markdown());
+
+    let mut html = render_markdown_with_comrak(markdown, config);
+
+    if let Some(protected_math) = protected_math {
+        html = protected_math.restore(&html);
+    }
+
+    Ok(html)
+}
+
+fn preprocess_markdown(markdown: &str, config: &Config) -> String {
+    let markdown = if config.math_shorthand {
+        preprocess_math_shorthand_blocks(markdown)
+    } else {
+        markdown.to_string()
+    };
+    let markdown = preprocess_expandables(&markdown);
+    preprocess_cards(&markdown)
+}
+
+fn protect_markdown_math(markdown: &str, config: &Config) -> Option<ProtectedMath> {
+    if config.escape_markdown_in_math {
+        None
+    } else {
+        Some(protect_math(markdown, config.math_shorthand))
+    }
+}
+
+fn render_markdown_with_comrak(markdown: &str, config: &Config) -> String {
+    let options = markdown_options();
+    let mut plugins = comrak::Plugins::default();
+    let adapter = comrak::plugins::syntect::SyntectAdapterBuilder::new()
+        .theme(config.syntax_highlighter_theme.as_str())
+        .build();
+    plugins.render.codefence_syntax_highlighter = Some(&adapter);
+
+    comrak::markdown_to_html_with_plugins(markdown, &options, &plugins)
+}
+
+fn markdown_options() -> comrak::ComrakOptions<'static> {
     let mut options = comrak::ComrakOptions::default();
     options.extension.tasklist = true;
     options.extension.strikethrough = true;
@@ -96,39 +159,7 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     options.extension.alerts = true;
     options.parse.smart = true;
     options.render.unsafe_ = true;
-
-    let shorthand_markdown;
-    let markdown = if config.math_shorthand {
-        shorthand_markdown = preprocess_math_shorthand_blocks(markdown);
-        shorthand_markdown.as_str()
-    } else {
-        markdown
-    };
-    let expanded_markdown = preprocess_expandables(markdown);
-    let card_markdown = preprocess_cards(&expanded_markdown);
-    let markdown = card_markdown.as_str();
-    let protected_math = if config.escape_markdown_in_math {
-        None
-    } else {
-        Some(protect_math(markdown, config.math_shorthand))
-    };
-    let markdown = protected_math
-        .as_ref()
-        .map_or(markdown, |protected| protected.markdown());
-
-    let mut plugins = comrak::Plugins::default();
-    let builder = comrak::plugins::syntect::SyntectAdapterBuilder::new()
-        .theme(config.syntax_highlighter_theme.as_str());
-    let adapter = builder.build();
-    plugins.render.codefence_syntax_highlighter = Some(&adapter);
-
-    let mut html = comrak::markdown_to_html_with_plugins(markdown, &options, &plugins);
-
-    if let Some(protected_math) = protected_math {
-        html = protected_math.restore(&html);
-    }
-
-    Ok(html)
+    options
 }
 
 #[cfg(test)]

@@ -6,24 +6,17 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const PROBLEM_FILE_BASENAME: &str = "problem";
+const SOLUTION_FILE_BASENAME: &str = "solution";
+const HINT_FILE_BASENAME: &str = "hint";
+
 pub fn load_problem(
     base_path: &Path,
     metadata: ContentMetadata,
 ) -> Result<Content, Box<dyn Error>> {
-    let problem = {
-        let problem_tex = base_path.join("problem.tex");
-        let problem_md = base_path.join("problem.md");
-        if problem_tex.exists() {
-            load_formatted_file(&problem_tex)?
-        } else if problem_md.exists() {
-            load_formatted_file(&problem_md)?
-        } else {
-            return Err("Problem file not found".into());
-        }
-    };
-
-    let solutions = load_multiple_files(base_path, "solution")?;
-    let hints = load_multiple_files(base_path, "hint")?;
+    let problem = load_problem_statement(base_path)?;
+    let solutions = load_multiple_files(base_path, SOLUTION_FILE_BASENAME)?;
+    let hints = load_multiple_files(base_path, HINT_FILE_BASENAME)?;
 
     Ok(Content::Problem {
         metadata,
@@ -31,6 +24,25 @@ pub fn load_problem(
         solutions,
         hints,
     })
+}
+
+fn load_problem_statement(base_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
+    find_formatted_file(base_path, PROBLEM_FILE_BASENAME)
+        .ok_or_else(|| "Problem file not found".into())
+        .and_then(|file_path| load_formatted_file(&file_path))
+}
+
+fn find_formatted_file(base_path: &Path, basename: &str) -> Option<PathBuf> {
+    let tex_file = base_path.join(format!("{basename}.tex"));
+    let md_file = base_path.join(format!("{basename}.md"));
+
+    if tex_file.exists() {
+        Some(tex_file)
+    } else if md_file.exists() {
+        Some(md_file)
+    } else {
+        None
+    }
 }
 
 fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
@@ -44,41 +56,46 @@ fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>
     Ok(content)
 }
 
-// Loads multiple files (e.g., for solutions or hints) that match the pattern:
-// basename[.number].(tex|md)
 fn load_multiple_files(
     base_path: &Path,
     basename: &str,
 ) -> Result<Vec<FormattedText>, Box<dyn Error>> {
-    let mut items: Vec<(usize, PathBuf)> = Vec::new();
+    let mut files = collect_numbered_files(base_path, basename)?;
+    files.sort_by_key(|(order, path)| (*order, path.clone()));
 
-    // Regex pattern: ^basename(?:\.(\d+))?\.(tex|md)$
-    let pattern = format!(r"^{}(?:\.(\d+))?\.(tex|md)$", regex::escape(basename));
-    let re = Regex::new(&pattern)?;
+    let mut result = Vec::new();
+    for (_, file_path) in files {
+        result.push(load_formatted_file(&file_path)?);
+    }
+    Ok(result)
+}
 
-    // Iterate through directory entries
+fn collect_numbered_files(
+    base_path: &Path,
+    basename: &str,
+) -> Result<Vec<(usize, PathBuf)>, Box<dyn Error>> {
+    let re = numbered_file_regex(basename)?;
+    let mut files = Vec::new();
+
     for entry in fs::read_dir(base_path)? {
         let entry = entry?;
         let file_name = entry.file_name();
         let file_name_str = file_name.to_string_lossy();
+
         if let Some(caps) = re.captures(&file_name_str) {
-            // If a number is provided, use it for sorting; default to 0.
             let order = caps
                 .get(1)
                 .map_or(0, |m| m.as_str().parse::<usize>().unwrap_or(0));
-            items.push((order, entry.path()));
+            files.push((order, entry.path()));
         }
     }
 
-    // Sort items by their order and then by file name to have a deterministic order.
-    items.sort_by_key(|(order, path)| (*order, path.clone()));
+    Ok(files)
+}
 
-    // Load each file as FormattedText.
-    let mut result = Vec::new();
-    for (_, file_path) in items {
-        result.push(load_formatted_file(&file_path)?);
-    }
-    Ok(result)
+fn numbered_file_regex(basename: &str) -> Result<Regex, Box<dyn Error>> {
+    let pattern = format!(r"^{}(?:\.(\d+))?\.(tex|md)$", regex::escape(basename));
+    Ok(Regex::new(&pattern)?)
 }
 
 #[cfg(test)]

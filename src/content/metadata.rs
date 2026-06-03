@@ -10,6 +10,8 @@ use crate::config::Config;
 
 use super::content::{content_output_path, content_url};
 
+const METADATA_FILE: &str = "metadata.yaml";
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ContentKind {
@@ -44,14 +46,27 @@ pub struct ContentMetadata {
 
 impl ContentMetadata {
     pub fn load(path: &Path, config: &Config) -> Result<ContentMetadata, Box<dyn Error>> {
-        let yaml = fs::read_to_string(path.join("metadata.yaml"))?;
+        let yaml = read_metadata_yaml(path)?;
         let mut meta: Self = serde_yaml::from_str(&yaml)?;
 
-        meta.output_path = content_output_path(path, config)?;
-        meta.url = content_url(path, config)?;
+        attach_output_locations(&mut meta, path, config)?;
 
         Ok(meta)
     }
+}
+
+fn read_metadata_yaml(path: &Path) -> Result<String, Box<dyn Error>> {
+    Ok(fs::read_to_string(path.join(METADATA_FILE))?)
+}
+
+fn attach_output_locations(
+    metadata: &mut ContentMetadata,
+    path: &Path,
+    config: &Config,
+) -> Result<(), Box<dyn Error>> {
+    metadata.output_path = content_output_path(path, config)?;
+    metadata.url = content_url(path, config)?;
+    Ok(())
 }
 
 #[cfg(test)]

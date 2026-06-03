@@ -40,22 +40,103 @@ impl EnvFilter {
     }
 
     fn clean_labels(&mut self, input: &str) -> String {
-        // Regex pattern to match <span id="X" label="X">[X]</span>
         let re = clean_labels_regex();
-
-        // Replace all matches with <span id="X" label="X"></span>
         let cleaned_html = re.replace_all(input, |caps: &regex::Captures| {
-            let id = &caps[1]; // Extract id
-            let label = &caps[2]; // Extract label
+            let id = &caps[1];
+            let label = &caps[2];
 
             if self.theorem_labels.contains_key(id) {
                 format!(r#"<span id="{}" label="{}"></span>"#, id, label)
             } else {
-                caps[0].to_string() // If not in labels, keep the original text
+                caps[0].to_string()
             }
         });
 
         cleaned_html.to_string()
+    }
+
+    fn write_begin_environment(
+        &self,
+        token: &str,
+        env_name: &str,
+        theorem_counter: &mut usize,
+        result: &mut String,
+    ) {
+        if self.theorems.contains_key(env_name) {
+            let theorem = &self.theorems[env_name];
+            if theorem.numbered {
+                *theorem_counter += 1;
+            }
+            result.push_str(&format!(
+                "\\textbf{{{}}}. ",
+                theorem.label(*theorem_counter)
+            ));
+        } else if env_name == "equation" {
+            result.push_str(r"$$\begin{equation}");
+        } else if env_name == "problem" || env_name == "solution" {
+            result.push_str(format!("\\begin{{{}}}", env_name).as_str());
+        } else {
+            result.push_str(token);
+        }
+    }
+
+    fn write_label(
+        &mut self,
+        token: &str,
+        env_stack: &[String],
+        theorem_counter: usize,
+        result: &mut String,
+    ) {
+        if let Some(env_name) = env_stack.last() {
+            let label = command_argument(token);
+            if self.theorems.contains_key(env_name) {
+                self.theorem_labels
+                    .insert(label.to_string(), format!("{}", theorem_counter));
+            } else if env_name == "equation" {
+                self.equation_labels.insert(label.to_string());
+            }
+        }
+        result.push_str(token);
+    }
+
+    fn write_reference(&self, token: &str, result: &mut String) {
+        let label = command_argument(token);
+        if self.theorem_labels.contains_key(label) {
+            result.push_str(&format!(
+                "\\href{{#{}}}{{{}}}",
+                label, self.theorem_labels[label]
+            ));
+        } else if self.equation_labels.contains(label) {
+            result.push_str(&format!("(EQREFBEGIN){}(EQREFEND)", label));
+        } else {
+            result.push_str(token);
+        }
+    }
+
+    fn write_end_environment(
+        &self,
+        token: &str,
+        env_name: &str,
+        env_stack: &mut Vec<String>,
+        result: &mut String,
+    ) -> Result<(), String> {
+        let last_env = env_stack.pop().unwrap();
+        if env_name != last_env {
+            return Err(format!(
+                "Mismatched environment tags: \\begin{{{}}} and \\end{{{}}}",
+                last_env, env_name
+            ));
+        }
+
+        if self.theorems.contains_key(env_name) {
+            result.push('\n');
+        } else if env_name == "equation" {
+            result.push_str(r"\end{equation}$$");
+        } else {
+            result.push_str(token);
+        }
+
+        Ok(())
     }
 }
 
@@ -73,67 +154,16 @@ impl PandocFilter for EnvFilter {
             let s = m.as_str();
             result.push_str(&input[processed..m.start()]);
             if s.starts_with(r"\begin") {
-                let env_name: &str = s
-                    .trim_start_matches(r"\begin{")
-                    .split_once('}')
-                    .map_or("", |(name, _)| name);
+                let env_name = begin_environment_name(s);
                 env_stack.push(env_name.to_string());
-                if self.theorems.contains_key(env_name) {
-                    let theorem = &self.theorems[env_name];
-                    if theorem.numbered {
-                        theorem_counter += 1;
-                    }
-                    result.push_str(&format!("\\textbf{{{}}}. ", theorem.label(theorem_counter)));
-                } else if env_name == "equation" {
-                    result.push_str(r"$$\begin{equation}");
-                } else if env_name == "problem" || env_name == "solution" {
-                    // ignore extra parameters
-                    result.push_str(format!("\\begin{{{}}}", env_name).as_str());
-                } else {
-                    result.push_str(s);
-                }
+                self.write_begin_environment(s, env_name, &mut theorem_counter, &mut result);
             } else if s.starts_with(r"\label") {
-                if let Some(env_name) = env_stack.last() {
-                    if self.theorems.contains_key(env_name) {
-                        let label = s.trim_start_matches(r"\label{").trim_end_matches('}');
-                        self.theorem_labels
-                            .insert(label.to_string(), format!("{}", theorem_counter));
-                    } else if env_name == "equation" {
-                        let label = s.trim_start_matches(r"\label{").trim_end_matches('}');
-                        self.equation_labels.insert(label.to_string());
-                    }
-                    result.push_str(s);
-                } else {
-                    result.push_str(s);
-                }
+                self.write_label(s, &env_stack, theorem_counter, &mut result);
             } else if s.starts_with(r"\ref") {
-                let label = s.trim_start_matches(r"\ref{").trim_end_matches('}');
-                if self.theorem_labels.contains_key(label) {
-                    result.push_str(&format!(
-                        "\\href{{#{}}}{{{}}}",
-                        label, self.theorem_labels[label]
-                    ));
-                } else if self.equation_labels.contains(label) {
-                    result.push_str(&format!("(EQREFBEGIN){}(EQREFEND)", label));
-                } else {
-                    result.push_str(s);
-                }
+                self.write_reference(s, &mut result);
             } else if s.starts_with(r"\end") {
-                let env_name = s.trim_start_matches(r"\end{").trim_end_matches('}');
-                let last_env = env_stack.pop().unwrap();
-                if env_name != last_env {
-                    return Err(format!(
-                        "Mismatched environment tags: \\begin{{{}}} and \\end{{{}}}",
-                        last_env, env_name
-                    ));
-                }
-                if self.theorems.contains_key(env_name) {
-                    result.push('\n');
-                } else if env_name == "equation" {
-                    result.push_str(r"\end{equation}$$");
-                } else {
-                    result.push_str(s);
-                }
+                let env_name = end_environment_name(s);
+                self.write_end_environment(s, env_name, &mut env_stack, &mut result)?;
             } else {
                 result.push_str(m.as_str());
             }
@@ -152,4 +182,22 @@ impl PandocFilter for EnvFilter {
             .replace(r"\end{equation}$$", r"\end{equation}");
         Ok(result)
     }
+}
+
+fn begin_environment_name(token: &str) -> &str {
+    token
+        .trim_start_matches(r"\begin{")
+        .split_once('}')
+        .map_or("", |(name, _)| name)
+}
+
+fn end_environment_name(token: &str) -> &str {
+    token.trim_start_matches(r"\end{").trim_end_matches('}')
+}
+
+fn command_argument(token: &str) -> &str {
+    token
+        .split_once('{')
+        .and_then(|(_, rest)| rest.strip_suffix('}'))
+        .unwrap_or("")
 }

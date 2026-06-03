@@ -39,9 +39,35 @@ struct IndexConfig {
     template: String,
 }
 
+struct CliArgs {
+    index_yaml_path: PathBuf,
+    config_path: PathBuf,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Set up command-line argument parsing with clap
-    let matches = Command::new("ssg-list")
+    run(parse_args()?)
+}
+
+fn parse_args() -> Result<CliArgs, Box<dyn std::error::Error>> {
+    let matches = cli_command().get_matches();
+
+    let index_yaml_path = matches
+        .get_one::<String>("path")
+        .map(PathBuf::from)
+        .ok_or("Missing required index.yaml path argument")?;
+    let config_path = matches
+        .get_one::<PathBuf>("config")
+        .cloned()
+        .ok_or("Missing required --config argument")?;
+
+    Ok(CliArgs {
+        index_yaml_path,
+        config_path,
+    })
+}
+
+fn cli_command() -> Command {
+    Command::new("ssg-list")
         .version("1.0")
         .author("Hadi Moshayedi")
         .about("Generates paginated list pages from content")
@@ -59,95 +85,112 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .value_name("FILE")
                 .value_parser(clap::value_parser!(PathBuf)),
         )
-        .get_matches();
+}
 
-    // Extract values from arguments
-    let index_yaml_path = matches
-        .get_one::<String>("path")
-        .map(PathBuf::from)
-        .ok_or("Missing required index.yaml path argument")?;
-    let config_path = matches
-        .get_one::<PathBuf>("config")
-        .cloned()
-        .ok_or("Missing required --config argument")?;
-    let config = config::Config::load(&config_path)?;
+fn run(args: CliArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = config::Config::load(&args.config_path)?;
 
-    // Create build directory if it doesn't exist
     fs::create_dir_all(&config.build_dir)?;
 
-    println!("Loading index_config from: {}", index_yaml_path.display());
+    println!(
+        "Loading index_config from: {}",
+        args.index_yaml_path.display()
+    );
     println!("Build directory: {}", config.build_dir.display());
 
-    // Load the index configuration
-    let config_content = fs::read_to_string(&index_yaml_path)?;
-    let index_config: IndexConfig = serde_yaml::from_str(&config_content)?;
-
+    let index_config = load_index_config(&args.index_yaml_path)?;
     let renderer = Renderer::new(&config)?;
-
-    let parent_dir = index_yaml_path.parent().ok_or_else(|| {
-        format!(
-            "Index file has no parent directory: {}",
-            index_yaml_path.display()
-        )
-    })?;
-    let absolute_parent_dir = absolute_path(parent_dir)?;
-    let absolute_content_dir = absolute_path(&config.content_dir)?;
-    let output_base_dir = if let Ok(rel) = absolute_parent_dir.strip_prefix(&absolute_content_dir) {
-        config.build_dir.join(rel)
-    } else {
-        config.build_dir.join(parent_dir)
-    };
+    let output_base_dir = output_base_dir(&args.index_yaml_path, &config)?;
 
     println!("Base content path: {}", output_base_dir.display());
 
-    let search_path = if let Some(path) = index_config.path {
-        parent_dir.join(path)
-    } else {
-        parent_dir.to_owned()
-    };
-
-    // Find all content files of the specified type recursively
+    let search_path = search_path(&args.index_yaml_path, &index_config)?;
     let mut content_items = find_content_files(&search_path, index_config.content_type, &config)?;
-
-    // Sort content by date (newest first) or title if date is not available
-    content_items.sort_by(|a, b| match (&a.timestamp, &b.timestamp) {
-        (Some(a_date), Some(b_date)) => b_date.cmp(a_date),
-        _ => a.title.cmp(&b.title),
-    });
+    sort_content_items(&mut content_items);
 
     println!("Found {} content items", content_items.len());
 
     fs::create_dir_all(&output_base_dir)?;
-
-    let page_filename = "index.html".to_string();
-    let output_path = output_base_dir.join(&page_filename);
-
-    // Create context for rendering
-    let mut context = HashMap::new();
-    if let Some(title) = index_config.title {
-        context.insert("title".to_string(), Value::String(title));
-    }
-
-    // Convert content items to serializable format
-    let serializable_items: Vec<_> = content_items
-        .iter()
-        .map(|item| serde_json::to_value(item).unwrap())
-        .collect();
-
-    context.insert(
-        "content_items".to_string(),
-        Value::Array(serializable_items),
-    );
-
-    let html = renderer.render(&index_config.template, context)?;
-
-    fs::write(output_path, html)?;
+    let html = render_list(&renderer, &index_config, &content_items)?;
+    fs::write(output_base_dir.join("index.html"), html)?;
 
     println!("List generation completed successfully!");
     Ok(())
 }
 
-// Function to find all content files of a specified type in a directory recursively
+fn load_index_config(path: &Path) -> Result<IndexConfig, Box<dyn std::error::Error>> {
+    let config_content = fs::read_to_string(path)?;
+    Ok(serde_yaml::from_str(&config_content)?)
+}
+
+fn output_base_dir(
+    index_yaml_path: &Path,
+    config: &config::Config,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let parent_dir = index_parent_dir(index_yaml_path)?;
+    let absolute_parent_dir = absolute_path(parent_dir)?;
+    let absolute_content_dir = absolute_path(&config.content_dir)?;
+
+    if let Ok(rel) = absolute_parent_dir.strip_prefix(&absolute_content_dir) {
+        Ok(config.build_dir.join(rel))
+    } else {
+        Ok(config.build_dir.join(parent_dir))
+    }
+}
+
+fn index_parent_dir(index_yaml_path: &Path) -> Result<&Path, Box<dyn std::error::Error>> {
+    index_yaml_path.parent().ok_or_else(|| {
+        format!(
+            "Index file has no parent directory: {}",
+            index_yaml_path.display()
+        )
+        .into()
+    })
+}
+
+fn search_path(
+    index_yaml_path: &Path,
+    index_config: &IndexConfig,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let parent_dir = index_parent_dir(index_yaml_path)?;
+    Ok(index_config
+        .path
+        .as_ref()
+        .map_or_else(|| parent_dir.to_owned(), |path| parent_dir.join(path)))
+}
+
+fn sort_content_items(content_items: &mut [ContentMetadata]) {
+    content_items.sort_by(|a, b| match (&a.timestamp, &b.timestamp) {
+        (Some(a_date), Some(b_date)) => b_date.cmp(a_date),
+        _ => a.title.cmp(&b.title),
+    });
+}
+
+fn render_list(
+    renderer: &Renderer,
+    index_config: &IndexConfig,
+    content_items: &[ContentMetadata],
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut context = HashMap::new();
+    if let Some(title) = &index_config.title {
+        context.insert("title".to_string(), Value::String(title.clone()));
+    }
+
+    context.insert(
+        "content_items".to_string(),
+        Value::Array(serializable_content_items(content_items)),
+    );
+
+    renderer.render(&index_config.template, context)
+}
+
+fn serializable_content_items(content_items: &[ContentMetadata]) -> Vec<Value> {
+    content_items
+        .iter()
+        .map(|item| serde_json::to_value(item).unwrap())
+        .collect()
+}
+
 fn find_content_files(
     base_path: &Path,
     content_type: ContentKind,
@@ -163,53 +206,73 @@ fn find_content_files(
         }
 
         if path.file_name() == Some("metadata.yaml".as_ref()) {
-            let dir = path.parent().ok_or_else(|| {
-                format!("metadata.yaml has no parent directory: {}", path.display())
-            })?;
-            match ContentMetadata::load(dir, config) {
-                Ok(metadata) => {
-                    if metadata.kind == content_type {
-                        content_items.push(metadata);
-                    }
-                }
-                Err(err) => {
-                    println!(
-                        "Warning: Failed to load metadata from {}: {}",
-                        path.display(),
-                        err
-                    );
-                }
-            }
+            load_directory_metadata(path, content_type, config, &mut content_items);
             continue;
         }
 
         if content_type == ContentKind::Page && is_bare_content_file(path) {
-            let has_directory_metadata = path
-                .parent()
-                .map(|parent| parent.join("metadata.yaml").exists())
-                .unwrap_or(false);
-            if has_directory_metadata {
+            if has_directory_metadata(path) {
                 continue;
             }
-
-            match Content::load(path, config) {
-                Ok(content) => {
-                    if let Content::Page { metadata, .. } = content {
-                        content_items.push(metadata);
-                    }
-                }
-                Err(err) => {
-                    println!(
-                        "Warning: Failed to load bare page from {}: {}",
-                        path.display(),
-                        err
-                    );
-                }
-            }
+            load_bare_page_metadata(path, config, &mut content_items);
         }
     }
 
     Ok(content_items)
+}
+
+fn load_directory_metadata(
+    metadata_path: &Path,
+    content_type: ContentKind,
+    config: &config::Config,
+    content_items: &mut Vec<ContentMetadata>,
+) {
+    let Some(dir) = metadata_path.parent() else {
+        println!(
+            "Warning: Failed to load metadata from {}: metadata.yaml has no parent directory",
+            metadata_path.display()
+        );
+        return;
+    };
+
+    match ContentMetadata::load(dir, config) {
+        Ok(metadata) => {
+            if metadata.kind == content_type {
+                content_items.push(metadata);
+            }
+        }
+        Err(err) => {
+            println!(
+                "Warning: Failed to load metadata from {}: {}",
+                metadata_path.display(),
+                err
+            );
+        }
+    }
+}
+
+fn has_directory_metadata(path: &Path) -> bool {
+    path.parent()
+        .map(|parent| parent.join("metadata.yaml").exists())
+        .unwrap_or(false)
+}
+
+fn load_bare_page_metadata(
+    path: &Path,
+    config: &config::Config,
+    content_items: &mut Vec<ContentMetadata>,
+) {
+    match Content::load(path, config) {
+        Ok(Content::Page { metadata, .. }) => content_items.push(metadata),
+        Ok(_) => {}
+        Err(err) => {
+            println!(
+                "Warning: Failed to load bare page from {}: {}",
+                path.display(),
+                err
+            );
+        }
+    }
 }
 
 fn is_bare_content_file(path: &Path) -> bool {

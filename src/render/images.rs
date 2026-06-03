@@ -3,10 +3,13 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 static IMG_REGEX: OnceLock<Regex> = OnceLock::new();
 static CSS_URL_REGEX: OnceLock<Regex> = OnceLock::new();
+
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg"];
+const STATIC_ASSETS_DIR: &str = "static/assets";
 
 fn absolute_path(path: PathBuf) -> Result<PathBuf, Box<dyn Error>> {
     if path.is_absolute() {
@@ -27,97 +30,98 @@ fn css_url_regex() -> &'static Regex {
         .get_or_init(|| Regex::new(r#"url\(['"]?([^'"\)]+)['"]?\)"#).expect("valid css url regex"))
 }
 
-/// Finds all images in the given root directory.
-/// Returns a vector of paths relative to the root.
 fn find_images(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let allowed_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg"];
-
     let mut images = Vec::new();
 
     for entry in WalkDir::new(root) {
         let entry = entry?;
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry
-                .path()
-                .extension()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_lowercase())
-            {
-                if allowed_extensions.contains(&ext.as_str()) {
-                    // Get the path relative to the root.
-                    let relative_path = entry.path().strip_prefix(root)?.to_path_buf();
-                    images.push(relative_path);
-                }
-            }
+        if is_image_file(&entry) {
+            images.push(entry.path().strip_prefix(root)?.to_path_buf());
         }
     }
 
     Ok(images)
 }
 
-// Modifies HTML content by prefixing image URLs with a root URL if they match any of the provided image paths.
-fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> String {
-    // Create a set of normalized paths for efficient lookup
-    let normalized_paths: Vec<String> = image_paths.iter().map(normalize_path).collect();
+fn is_image_file(entry: &DirEntry) -> bool {
+    entry.file_type().is_file()
+        && entry
+            .path()
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|ext| {
+                IMAGE_EXTENSIONS
+                    .iter()
+                    .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+            })
+            .unwrap_or(false)
+}
 
-    // Process img tags
-    let html = img_regex().replace_all(html, |caps: &Captures| {
+fn prefix_image_urls(html: &str, image_paths: &[PathBuf], root_url: &str) -> String {
+    let normalized_paths: Vec<String> = image_paths.iter().map(normalize_path).collect();
+    let html = prefix_img_tags(html, &normalized_paths, root_url);
+    let html = prefix_css_urls(&html, &normalized_paths, root_url);
+    html.to_string()
+}
+
+fn prefix_img_tags<'a>(
+    html: &'a str,
+    normalized_paths: &'a [String],
+    root_url: &'a str,
+) -> std::borrow::Cow<'a, str> {
+    img_regex().replace_all(html, |caps: &Captures| {
         let full_match = &caps[0];
         let src = &caps[1];
 
-        if should_prefix(src, &normalized_paths) {
+        if should_prefix(src, normalized_paths) {
             let new_src = format!("{}{}", root_url, src);
             full_match.replace(src, &new_src)
         } else {
             full_match.to_string()
         }
-    });
+    })
+}
 
-    // Process CSS url() references
-    let html = css_url_regex().replace_all(&html, |caps: &Captures| {
+fn prefix_css_urls<'a>(
+    html: &'a str,
+    normalized_paths: &'a [String],
+    root_url: &'a str,
+) -> std::borrow::Cow<'a, str> {
+    css_url_regex().replace_all(html, |caps: &Captures| {
         let full_match = &caps[0];
         let url_path = &caps[1];
 
-        if should_prefix(url_path, &normalized_paths) {
+        if should_prefix(url_path, normalized_paths) {
             format!("url('{}{}')", root_url, url_path)
         } else {
             full_match.to_string()
         }
-    });
-
-    html.to_string()
+    })
 }
 
-// Determines if a path in HTML should be prefixed with the root URL.
 fn should_prefix(path: &str, normalized_paths: &[String]) -> bool {
-    // Skip paths that are already absolute URLs or data URLs
-    if path.starts_with("http://")
-        || path.starts_with("https://")
-        || path.starts_with("data:")
-        || path.starts_with("/")
-    {
+    if is_external_or_rooted_path(path) {
         return false;
     }
 
-    // Normalize the path for comparison
     let normalized = normalize_path(Path::new(path));
-
-    // Check if this path (or a parent directory) is in our list
     normalized_paths
         .iter()
         .any(|p| normalized == *p || normalized.starts_with(p) || p.starts_with(&normalized))
 }
 
-/// Normalizes a path for comparison by removing extra separators and converting to string.
+fn is_external_or_rooted_path(path: &str) -> bool {
+    path.starts_with("http://")
+        || path.starts_with("https://")
+        || path.starts_with("data:")
+        || path.starts_with("/")
+}
+
 fn normalize_path<P: AsRef<Path>>(path: P) -> String {
     let path_str = path.as_ref().to_string_lossy().to_string();
-
-    // Convert backslashes to forward slashes for consistent comparison
     path_str.replace('\\', "/")
 }
 
-/// A class that manages images within a content directory and handles
-/// copying them to the build directory and updating HTML content.
 pub struct ImageProcessor {
     path: PathBuf,
     content_dir: PathBuf,
@@ -134,15 +138,7 @@ impl ImageProcessor {
     ) -> Result<Self, Box<dyn Error>> {
         let path = absolute_path(path)?;
         let content_dir = absolute_path(content_dir)?;
-
-        let path = if path.is_dir() {
-            path
-        } else {
-            // If the path is a file, use its parent directory
-            path.parent()
-                .ok_or("Provided path is not a directory or file with no parent")?
-                .to_path_buf()
-        };
+        let path = content_root(path)?;
 
         let images = find_images(&path)?;
 
@@ -155,66 +151,68 @@ impl ImageProcessor {
         })
     }
 
-    /// Checks if any images were found in the content directory
     pub fn has_images(&self) -> bool {
         !self.images.is_empty()
     }
 
-    /// Gets the number of images found
     pub fn image_count(&self) -> usize {
         self.images.len()
     }
 
-    /// Copies all images to the build directory and sets up the URL prefix
     pub fn copy_images_to_build_dir(&mut self) -> Result<(), Box<dyn Error>> {
-        // Skip if no images found
         if self.images.is_empty() {
             return Ok(());
         }
 
-        // Create the relative path for this content
         let rel_path = self.path.strip_prefix(&self.content_dir)?;
-        let static_assets_dir = self.build_dir.join("static/assets").join(rel_path);
+        let static_assets_dir = self.build_dir.join(STATIC_ASSETS_DIR).join(rel_path);
 
-        // Ensure the target directory exists
         fs::create_dir_all(&static_assets_dir)?;
-
-        // Copy each image to the build directory
-        for image in &self.images {
-            let source_path = self.path.join(image);
-            let target_path = static_assets_dir.join(image);
-
-            // Create directory if it doesn't exist
-            if let Some(parent) = target_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-
-            // Copy the file
-            fs::copy(&source_path, &target_path)?;
-        }
-
-        // Set the URL prefix for this content
-        self.url_prefix = Some(format!("/static/assets/{}/", rel_path.display()));
+        self.copy_images(&static_assets_dir)?;
+        self.url_prefix = Some(format!("/{STATIC_ASSETS_DIR}/{}/", rel_path.display()));
 
         Ok(())
     }
 
-    /// Updates HTML content by replacing image references with the prefixed URLs
     pub fn update_html_with_image_urls(&self, html: &str) -> String {
         if let Some(ref prefix) = self.url_prefix {
             prefix_image_urls(html, &self.images, prefix)
         } else {
-            // If no URL prefix set (no images copied), return the original HTML
             html.to_string()
         }
     }
 
-    /// Process multiple HTML strings and return updated versions
     pub fn update_multiple_html(&self, html_contents: &[String]) -> Vec<String> {
         html_contents
             .iter()
             .map(|html| self.update_html_with_image_urls(html))
             .collect()
+    }
+
+    fn copy_images(&self, static_assets_dir: &Path) -> Result<(), Box<dyn Error>> {
+        for image in &self.images {
+            let source_path = self.path.join(image);
+            let target_path = static_assets_dir.join(image);
+
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            fs::copy(source_path, target_path)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn content_root(path: PathBuf) -> Result<PathBuf, Box<dyn Error>> {
+    if path.is_dir() {
+        Ok(path)
+    } else {
+        path.parent()
+            .ok_or("Provided path is not a directory or file with no parent")
+            .map(Path::to_path_buf)
+            .map_err(Into::into)
     }
 }
 

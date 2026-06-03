@@ -310,7 +310,7 @@ fn strip_blockquote_marker(line: &str) -> &str {
 
     if let Some(after_marker) = rest.strip_prefix('>') {
         let after_marker = after_marker.strip_prefix(' ').unwrap_or(after_marker);
-        &after_marker[..]
+        after_marker
     } else {
         line
     }

@@ -23,6 +23,28 @@ fn is_fence_line(line: &str) -> bool {
     line.starts_with("```") || line.starts_with("~~~")
 }
 
+fn append_line(out: &mut String, line: &str) {
+    out.push_str(line);
+    out.push('\n');
+}
+
+fn is_directive_close(line: &str) -> bool {
+    line.trim_start().starts_with(":::")
+}
+
+fn copy_directive_body<'a>(lines: &mut impl Iterator<Item = &'a str>, out: &mut String) {
+    let mut in_fence = false;
+    for body in lines {
+        if is_fence_line(body) {
+            in_fence = !in_fence;
+        }
+        if !in_fence && is_directive_close(body) {
+            break;
+        }
+        append_line(out, body);
+    }
+}
+
 pub fn preprocess_cards(markdown: &str) -> String {
     let mut out = String::new();
     let mut lines = markdown.lines();
@@ -31,36 +53,22 @@ pub fn preprocess_cards(markdown: &str) -> String {
     while let Some(line) = lines.next() {
         if is_fence_line(line) {
             in_fence = !in_fence;
-            out.push_str(line);
-            out.push('\n');
+            append_line(&mut out, line);
         } else if !in_fence && line.trim_start().starts_with(":::card") {
             let class = extract_class(line).unwrap_or_default();
 
             out.push_str(&format!(r#"<div class="card {class}">"#, class = class));
             out.push('\n');
             out.push('\n');
-            let mut body_in_fence = false;
-            for body in &mut lines {
-                if is_fence_line(body) {
-                    body_in_fence = !body_in_fence;
-                }
-                if !body_in_fence && body.trim_start().starts_with(":::") {
-                    break;
-                }
-                out.push_str(body);
-                out.push('\n');
-            }
-
+            copy_directive_body(&mut lines, &mut out);
             out.push_str("  </div>\n\n");
         } else {
-            out.push_str(line);
-            out.push('\n');
+            append_line(&mut out, line);
         }
     }
     out
 }
 
-/// Replace `:::expandable … :::` with Bootstrap‑collapse HTML.
 pub fn preprocess_expandables(markdown: &str) -> String {
     let mut out = String::new();
     let mut id_counter = 0;
@@ -70,25 +78,13 @@ pub fn preprocess_expandables(markdown: &str) -> String {
     while let Some(line) = lines.next() {
         if is_fence_line(line) {
             in_fence = !in_fence;
-            out.push_str(line);
-            out.push('\n');
+            append_line(&mut out, line);
         } else if !in_fence && line.trim_start().starts_with(":::expandable") {
-            // ── 1. Parse the heading line ────────────────────────────────
             let heading_line = lines.next().unwrap_or("").trim();
             id_counter += 1;
             let id = format!("expand-{}", id_counter);
+            let heading_line = render_expandable_heading(heading_line, &id);
 
-            let heading_line = expand_link_regex()
-                .replace_all(heading_line, |caps: &regex::Captures| {
-                    format!(
-                        r#"<a class="expand-link" data-bs-toggle="collapse" href='#{id}'>{}</a>"#,
-                        &caps[1],
-                        id = id
-                    )
-                })
-                .into_owned();
-
-            // ── 2. Emit the toggle + opening wrappers ───────────────────
             out.push_str(&format!(
                 r#"{heading_line}
 
@@ -99,27 +95,25 @@ pub fn preprocess_expandables(markdown: &str) -> String {
                 id = id
             ));
 
-            // ── 3. Copy body lines until closing fence ──────────────────
-            let mut body_in_fence = false;
-            for body in &mut lines {
-                if is_fence_line(body) {
-                    body_in_fence = !body_in_fence;
-                }
-                if !body_in_fence && body.trim_start().starts_with(":::") {
-                    break; // reached terminating fence
-                }
-                out.push_str(body);
-                out.push('\n');
-            }
-
-            // ── 4. Close the wrappers ───────────────────────────────────
+            copy_directive_body(&mut lines, &mut out);
             out.push_str("  </div>\n</div>\n");
         } else {
-            out.push_str(line);
-            out.push('\n');
+            append_line(&mut out, line);
         }
     }
     out
+}
+
+fn render_expandable_heading(heading_line: &str, id: &str) -> String {
+    expand_link_regex()
+        .replace_all(heading_line, |caps: &regex::Captures| {
+            format!(
+                r#"<a class="expand-link" data-bs-toggle="collapse" href='#{id}'>{}</a>"#,
+                &caps[1],
+                id = id
+            )
+        })
+        .into_owned()
 }
 
 #[cfg(test)]
