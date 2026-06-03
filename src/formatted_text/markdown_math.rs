@@ -77,6 +77,7 @@ const PROTECTED_LATEX_TEXT_COMMANDS: &[&str] = &[
 ];
 
 const RELATION_TOKENS: &[&str] = &["<=>", "=>", "->", "!=", "<=", ">=", "=", "<", ">"];
+const RELATION_WORDS: &[&str] = &["subseteq", "supseteq", "notin", "subset", "supset", "in"];
 
 const INDEXED_OPERATORS: &[(&str, &str)] = &[
     ("sum", r"\sum"),
@@ -460,7 +461,7 @@ fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
 
 fn is_relation_separator_row(row: &str) -> bool {
     let row = row.trim();
-    RELATION_TOKENS.contains(&row)
+    RELATION_TOKENS.contains(&row) || RELATION_WORDS.contains(&row)
 }
 
 fn extract_math_block_tag(rows: &[String]) -> (Vec<String>, Option<String>) {
@@ -597,6 +598,7 @@ fn auto_align_row(row: &str) -> (String, bool) {
 
 fn find_top_level_relation(input: &str) -> Option<usize> {
     find_top_level_token_from(input, RELATION_TOKENS)
+        .or_else(|| find_top_level_word_from(input, RELATION_WORDS))
 }
 
 fn starts_with_top_level_relation(row: &str) -> bool {
@@ -1319,6 +1321,38 @@ fn find_top_level_token_from(input: &str, targets: &[&str]) -> Option<usize> {
     None
 }
 
+fn find_top_level_word_from(input: &str, targets: &[&str]) -> Option<usize> {
+    let mut paren_depth = 0;
+    let mut brace_depth = 0;
+    let mut bracket_depth = 0;
+
+    for (idx, ch) in input.char_indices() {
+        if is_escaped(input, idx) {
+            continue;
+        }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' if paren_depth > 0 => paren_depth -= 1,
+            '{' => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            '[' => bracket_depth += 1,
+            ']' if bracket_depth > 0 => bracket_depth -= 1,
+            _ if paren_depth == 0
+                && brace_depth == 0
+                && bracket_depth == 0
+                && targets
+                    .iter()
+                    .any(|target| can_replace_token(input, idx, target, &is_identifier_char)) =>
+            {
+                return Some(idx);
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 fn split_top_level_char(input: &str, target: char) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut start = 0;
@@ -1998,6 +2032,47 @@ A subset pre(f, B)
         assert_eq!(
             markdown,
             "$$\nimg(f, A) subset B <=> A subset pre(f, B)\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_auto_aligned_word_relation_blocks() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+img(f, A) subset B
+<=>
+A subset pre(f, B)
+
+cl(A) = comp(interior(comp(A)))
+
+bd(A) = cl(A) inter cl(comp(A))
+
+ball(v{x}, r) subset closedball(v{x}, r)
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nimg(f, A) subset B &<=> A subset pre(f, B) \\\\[0.5em]\ncl(A) &= comp(interior(comp(A))) \\\\[0.5em]\nbd(A) &= cl(A) inter cl(comp(A)) \\\\[0.5em]\nball(v{x}, r) &subset closedball(v{x}, r)\n\\end{aligned}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn finds_word_relations_only_as_top_level_words() {
+        assert_eq!(find_top_level_relation("A subset B"), Some(2));
+        assert_eq!(find_top_level_relation("A subseteq B"), Some(2));
+        assert_eq!(find_top_level_relation("A notin B"), Some(2));
+        assert_eq!(find_top_level_relation("closedball(v{x}, r)"), None);
+        let indexed_limit = "lim[x in A](f(x)) = 0";
+        assert_eq!(
+            find_top_level_relation(indexed_limit),
+            indexed_limit.find('=')
+        );
+
+        let topology_equivalence = "img(f, A) subset B <=> A subset pre(f, B)";
+        assert_eq!(
+            find_top_level_relation(topology_equivalence),
+            topology_equivalence.find("<=>")
         );
     }
 
