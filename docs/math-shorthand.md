@@ -143,15 +143,25 @@ Generated LaTeX:
 ```tex
 $$
 \begin{aligned}
-\mathbf{x} &= \mathbf{y} \\
+\mathbf{x} &= \mathbf{y} \\[0.5em]
 &\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon
 \end{aligned}
 $$
 ```
 
 Explicit `&` alignment markers are preserved. Use `:::math plain` to disable
-auto alignment, or `:::math align` to force an aligned block. Add `tag=...` on
-the opening line, or `#tag ...` inside a row, to emit `\tag{...}`.
+auto alignment, or `:::math align` to force an aligned block.
+
+Generated row breaks in `:::math`, `:::math align`, and `:::math system` use
+`\\[0.5em]` by default, matching the spacing used by the notes before shorthand
+blocks. Override it with `gap=0.6em`, or use `gap=none` for compact `\\` row
+breaks. Explicit row breaks in the source, such as `\\[1em]`, are preserved.
+Rows containing only a relation token, such as `<=>`, are folded into the
+neighboring rows so source can be split for readability without forcing a
+standalone rendered relation line.
+
+Add `tag=...` on the opening line, or `#tag ...` inside a row, to emit
+`\tag{...}`.
 
 Use `cases:` inside `:::math` for piecewise definitions:
 
@@ -188,9 +198,9 @@ Generated LaTeX:
 ```tex
 $$
 \left\{\begin{aligned}
-2x + 3y &= 1 \\
-x - y &= 0 \tag{2.1}
-\end{aligned}\right.
+2x + 3y &= 1 \\[0.5em]
+x - y &= 0
+\end{aligned}\right. \tag{2.1}
 $$
 ```
 

@@ -1,4 +1,5 @@
 const PLACEHOLDER_PREFIX: &str = "MATHSEGMENTPLACEHOLDER";
+const DEFAULT_MATH_ROW_GAP: &str = "0.5em";
 
 type Replacement = (&'static str, &'static str);
 type WrappedFunction = (&'static str, &'static str, &'static str);
@@ -116,6 +117,7 @@ enum MathBlockMode {
 struct MathBlockConfig {
     mode: MathBlockMode,
     tag: Option<String>,
+    row_gap: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,6 +330,7 @@ fn parse_math_block(line: &str) -> Option<MathBlockConfig> {
     let mut config = MathBlockConfig {
         mode: MathBlockMode::Auto,
         tag: None,
+        row_gap: Some(DEFAULT_MATH_ROW_GAP.to_string()),
     };
 
     for token in args.split_whitespace() {
@@ -340,6 +343,8 @@ fn parse_math_block(line: &str) -> Option<MathBlockConfig> {
             _ => {
                 if let Some(tag) = token.strip_prefix("tag=") {
                     config.tag = Some(tag.to_string());
+                } else if let Some(row_gap) = token.strip_prefix("gap=") {
+                    config.row_gap = parse_math_row_gap(row_gap)?;
                 } else {
                     return None;
                 }
@@ -348,6 +353,14 @@ fn parse_math_block(line: &str) -> Option<MathBlockConfig> {
     }
 
     Some(config)
+}
+
+fn parse_math_row_gap(value: &str) -> Option<Option<String>> {
+    match value {
+        "" => None,
+        "none" | "0" => Some(None),
+        value => Some(Some(value.to_string())),
+    }
 }
 
 fn collect_shorthand_block_body<'a>(
@@ -382,7 +395,7 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
     let tag = config.tag.as_deref().or(inline_tag.as_deref());
 
     if config.mode == MathBlockMode::System {
-        write_system_math_block(output, &body, tag);
+        write_system_math_block(output, &body, tag, config.row_gap.as_deref());
         return;
     }
     if config.mode == MathBlockMode::Matrix {
@@ -406,17 +419,48 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
 
     match config.mode {
         MathBlockMode::Plain => write_plain_math_block(output, &body, tag),
-        MathBlockMode::Align => write_aligned_math_block(output, &body, tag),
+        MathBlockMode::Align => {
+            let body = merge_relation_separator_rows(&body);
+            write_aligned_math_block(output, &body, tag, config.row_gap.as_deref())
+        }
         MathBlockMode::Auto => {
+            let body = merge_relation_separator_rows(&body);
             let (rows, should_align) = auto_align_rows(&body);
             if should_align {
-                write_aligned_rows(output, &rows, tag);
+                write_aligned_rows(output, &rows, tag, config.row_gap.as_deref());
             } else {
                 write_plain_math_block(output, &body, tag);
             }
         }
         MathBlockMode::System | MathBlockMode::Matrix => unreachable!("handled above"),
     }
+}
+
+fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
+    let mut merged = Vec::new();
+    let mut idx = 0;
+
+    while idx < rows.len() {
+        let mut row = rows[idx].clone();
+        while idx + 2 < rows.len() && is_relation_separator_row(&rows[idx + 1]) {
+            row = format!(
+                "{} {} {}",
+                row.trim_end(),
+                rows[idx + 1].trim(),
+                rows[idx + 2].trim_start()
+            );
+            idx += 2;
+        }
+        merged.push(row);
+        idx += 1;
+    }
+
+    merged
+}
+
+fn is_relation_separator_row(row: &str) -> bool {
+    let row = row.trim();
+    RELATION_TOKENS.iter().any(|token| row == *token)
 }
 
 fn extract_math_block_tag(rows: &[String]) -> (Vec<String>, Option<String>) {
@@ -455,23 +499,38 @@ fn write_plain_math_block(output: &mut String, rows: &[String], tag: Option<&str
     output.push_str("\n$$\n");
 }
 
-fn write_aligned_math_block(output: &mut String, rows: &[String], tag: Option<&str>) {
+fn write_aligned_math_block(
+    output: &mut String,
+    rows: &[String],
+    tag: Option<&str>,
+    row_gap: Option<&str>,
+) {
     let (rows, _) = auto_align_rows(rows);
-    write_aligned_rows(output, &rows, tag);
+    write_aligned_rows(output, &rows, tag, row_gap);
 }
 
-fn write_aligned_rows(output: &mut String, rows: &[String], tag: Option<&str>) {
+fn write_aligned_rows(
+    output: &mut String,
+    rows: &[String],
+    tag: Option<&str>,
+    row_gap: Option<&str>,
+) {
     output.push_str("$$\n\\begin{aligned}\n");
-    output.push_str(&join_math_rows(rows));
+    output.push_str(&join_math_rows(rows, row_gap));
     output.push_str("\n\\end{aligned}");
     push_optional_tag(output, tag);
     output.push_str("\n$$\n");
 }
 
-fn write_system_math_block(output: &mut String, rows: &[String], tag: Option<&str>) {
+fn write_system_math_block(
+    output: &mut String,
+    rows: &[String],
+    tag: Option<&str>,
+    row_gap: Option<&str>,
+) {
     let (rows, _) = auto_align_rows(rows);
     output.push_str("$$\n\\left\\{\\begin{aligned}\n");
-    output.push_str(&join_math_rows(&rows));
+    output.push_str(&join_math_rows(&rows, row_gap));
     output.push_str("\n\\end{aligned}\\right.");
     push_optional_tag(output, tag);
     output.push_str("\n$$\n");
@@ -525,18 +584,41 @@ fn find_top_level_relation(input: &str) -> Option<usize> {
     find_top_level_token_from(input, RELATION_TOKENS)
 }
 
-fn join_math_rows(rows: &[String]) -> String {
+fn join_math_rows(rows: &[String], row_gap: Option<&str>) -> String {
     rows.iter()
         .enumerate()
         .map(|(idx, row)| {
-            if idx + 1 == rows.len() || row.ends_with(r"\\") {
+            if idx + 1 == rows.len() || row_ends_with_latex_break(row) {
                 row.clone()
             } else {
-                format!("{row} \\\\")
+                format!("{row} {}", format_math_row_break(row_gap))
             }
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn format_math_row_break(row_gap: Option<&str>) -> String {
+    match row_gap {
+        Some(row_gap) => format!(r"\\[{row_gap}]"),
+        None => r"\\".to_string(),
+    }
+}
+
+fn row_ends_with_latex_break(row: &str) -> bool {
+    let row = row.trim_end();
+    row.ends_with(r"\\") || row_ends_with_latex_spaced_break(row)
+}
+
+fn row_ends_with_latex_spaced_break(row: &str) -> bool {
+    let Some(row) = row.strip_suffix(']') else {
+        return false;
+    };
+    let Some(start) = row.rfind(r"\\[") else {
+        return false;
+    };
+    let gap = &row[start + r"\\".len() + 1..];
+    !gap.is_empty() && !gap.contains('[') && !gap.contains(']')
 }
 
 fn join_case_rows(rows: &[String]) -> String {
@@ -744,7 +826,7 @@ fn format_inline_cases_content(content: &str) -> Option<String> {
     if rows.is_empty() {
         None
     } else {
-        Some(join_math_rows(&rows))
+        Some(join_math_rows(&rows, None))
     }
 }
 
@@ -1862,7 +1944,23 @@ S_n = sum[k=1..n] a_k
 
         assert_eq!(
             markdown,
-            "$$\n\\begin{aligned}\nS_n &= sum[k=1..n] a_k \\\\\n&= a_1 + ... + a_n \\\\\n&<= n max[k] abs(a_k)\n\\end{aligned}\n$$\n"
+            "$$\n\\begin{aligned}\nS_n &= sum[k=1..n] a_k \\\\[0.5em]\n&= a_1 + ... + a_n \\\\[0.5em]\n&<= n max[k] abs(a_k)\n\\end{aligned}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_relation_separator_rows_as_one_math_row() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+img(f, A) subset B
+<=>
+A subset pre(f, B)
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\nimg(f, A) subset B <=> A subset pre(f, B)\n$$\n"
         );
     }
 
@@ -1877,7 +1975,7 @@ g(x) &= x^3
 
         assert_eq!(
             markdown,
-            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\\ng(x) &= x^3\n\\end{aligned}\n$$\n"
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\[0.5em]\ng(x) &= x^3\n\\end{aligned}\n$$\n"
         );
     }
 
@@ -1892,7 +1990,52 @@ g(x) &= x^3
 
         assert_eq!(
             markdown,
-            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\\ng(x) &= x^3\n\\end{aligned} \\tag{E.1}\n$$\n"
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\[0.5em]\ng(x) &= x^3\n\\end{aligned} \\tag{E.1}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_math_blocks_with_custom_row_gap() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math align gap=0.6em
+f(x) &= x^2
+g(x) &= x^3
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\[0.6em]\ng(x) &= x^3\n\\end{aligned}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_math_blocks_with_no_row_gap() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math align gap=none
+f(x) &= x^2
+g(x) &= x^3
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\\ng(x) &= x^3\n\\end{aligned}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn keeps_explicit_math_row_break_spacing() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math align
+f(x) &= x^2 \\[1em]
+g(x) &= x^3
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\[1em]\ng(x) &= x^3\n\\end{aligned}\n$$\n"
         );
     }
 
@@ -1906,6 +2049,19 @@ c = d
         );
 
         assert_eq!(markdown, "$$\na = b\nc = d\n$$\n");
+    }
+
+    #[test]
+    fn leaves_relation_separator_rows_in_plain_mode() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math plain
+A
+<=>
+B
+:::"#,
+        );
+
+        assert_eq!(markdown, "$$\nA\n<=>\nB\n$$\n");
     }
 
     #[test]
@@ -1935,7 +2091,7 @@ x - y = 0
 
         assert_eq!(
             markdown,
-            "$$\n\\left\\{\\begin{aligned}\n2x + 3y &= 1 \\\\\nx - y &= 0\n\\end{aligned}\\right. \\tag{2.1}\n$$\n"
+            "$$\n\\left\\{\\begin{aligned}\n2x + 3y &= 1 \\\\[0.5em]\nx - y &= 0\n\\end{aligned}\\right. \\tag{2.1}\n$$\n"
         );
     }
 
