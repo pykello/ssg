@@ -52,6 +52,10 @@ See the generated `config.yaml`. Common fields:
 
 See [docs/math-shorthand.md](docs/math-shorthand.md).
 
+## Authoring Shortcuts
+
+See [docs/authoring-shortcuts.md](docs/authoring-shortcuts.md).
+
 ## Templates
 
 Put your HTML templates in `templates/`. Use Tera syntax.
