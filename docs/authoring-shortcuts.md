@@ -41,6 +41,23 @@ Proof text.
 The second line is the visible heading. Text inside square brackets on that line
 becomes the collapse toggle link.
 
+Use `:::proof` for the common collapsible proof form:
+
+```markdown
+:::proof
+Proof text.
+:::
+```
+
+This is equivalent to an expandable block titled `Proof.` with a `Click to
+Expand` toggle. Use a bracketed title for variants:
+
+```markdown
+:::proof[Proof of Lemma]
+Proof text.
+:::
+```
+
 ## Cards
 
 Use `:::card` to wrap Markdown in a card container:
@@ -53,6 +70,48 @@ Use `:::card` to wrap Markdown in a card container:
 
 The optional bracket value is appended as a CSS class. For example,
 `:::card[example]` generates a card with class `example`.
+
+Use semantic card aliases for common note-taking blocks:
+
+```markdown
+:::aside
+Side note.
+:::
+
+:::remark
+Remark text.
+:::
+```
+
+These generate card containers with `aside` or `remark` classes.
+
+## Figures
+
+Use `:::figure` for centered figures. For images, put the source on the opening
+line and optional metadata in the body:
+
+```markdown
+:::figure diagram.png
+alt: Force diagram
+caption: Geometry of the surface patch.
+width: 360
+:::
+```
+
+For JavaScript-rendered figures, use an `id` instead of an image source:
+
+```markdown
+:::figure id=fig12 width=360 ratio=1/1
+:::
+```
+
+The generated container uses the same centered sizing style as the handwritten
+HTML used by the notes. Add `class=...` when a JavaScript library expects one:
+
+```markdown
+:::figure id=board class=jxgbox width=480
+:::
+```
 
 ## LaTeX Environments
 

@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 
 use super::{
-    markdown_expandable::{preprocess_cards, preprocess_expandables},
+    markdown_expandable::{
+        preprocess_cards, preprocess_expandables, preprocess_figures, preprocess_semantic_cards,
+    },
     markdown_math::{preprocess_math_shorthand_blocks, protect_math, ProtectedMath},
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
@@ -127,8 +129,10 @@ fn preprocess_markdown(markdown: &str, config: &Config) -> String {
     } else {
         markdown.to_string()
     };
-    let markdown = preprocess_expandables(&markdown);
-    preprocess_cards(&markdown)
+    let markdown = preprocess_figures(&markdown);
+    let markdown = preprocess_semantic_cards(&markdown);
+    let markdown = preprocess_cards(&markdown);
+    preprocess_expandables(&markdown)
 }
 
 fn protect_markdown_math(markdown: &str, config: &Config) -> Option<ProtectedMath> {
@@ -600,5 +604,39 @@ Some other text
         assert!(output.contains(r#"<strong>Example (Condition Number)</strong>"#));
         assert!(output.contains(r#"Let $f(x) = \sqrt{x}$."#));
         assert!(output.contains(r#"<p>Some other text</p>"#));
+    }
+
+    #[test]
+    fn test_authoring_shortcuts() {
+        let config = get_test_config();
+        let input = r#":::proof[Proof of Lemma]
+Proof text.
+:::
+
+:::aside
+Side note.
+:::
+
+:::figure id=fig1 width=360
+:::
+
+:::expandable
+**Solution.** [Click to Expand]
+
+:::figure nested.png
+alt: Nested diagram
+:::
+:::
+"#;
+        let result = markdown_to_html(input, &config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        assert!(output.contains(r#"<strong>Proof of Lemma.</strong> <a class="expand-link" data-bs-toggle="collapse" href='#expand-1'>Click to Expand</a>"#));
+        assert!(output.contains(r#"<aside class="card aside">"#));
+        assert!(output.contains(r#"<p>Side note.</p>"#));
+        assert!(output.contains(r#"<div id="fig1" style="width:90%; max-width: 360px; aspect-ratio: 1 / 1; margin: 20px auto;"></div>"#));
+        assert!(output.contains(r#"<img src="nested.png" alt="Nested diagram">"#));
+        assert!(!output.contains(":::figure"));
     }
 }
