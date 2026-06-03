@@ -380,7 +380,7 @@ fn collect_shorthand_block_body<'a>(
             break;
         }
         if !trimmed.is_empty() {
-            body.push(trimmed.to_string());
+            body.push(body_line.trim_end().to_string());
         }
     }
 
@@ -392,7 +392,8 @@ fn is_shorthand_block_close(trimmed_line: &str) -> bool {
 }
 
 fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[String]) {
-    let (body, inline_tag) = extract_math_block_tag(body);
+    let body = normalize_math_block_rows(body, config.mode);
+    let (body, inline_tag) = extract_math_block_tag(&body);
     let tag = config.tag.as_deref().or(inline_tag.as_deref());
 
     if config.mode == MathBlockMode::System {
@@ -422,10 +423,12 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
         MathBlockMode::Plain => write_plain_math_block(output, &body, tag),
         MathBlockMode::Align => {
             let body = merge_relation_separator_rows(&body);
+            let body = merge_leading_relation_rows(&body);
             write_aligned_math_block(output, &body, tag, config.row_gap.as_deref())
         }
         MathBlockMode::Auto => {
             let body = merge_relation_separator_rows(&body);
+            let body = merge_leading_relation_rows(&body);
             let (rows, should_align) = auto_align_rows(&body);
             if should_align {
                 write_aligned_rows(output, &rows, tag, config.row_gap.as_deref());
@@ -435,6 +438,41 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
         }
         MathBlockMode::System | MathBlockMode::Matrix => unreachable!("handled above"),
     }
+}
+
+fn normalize_math_block_rows(rows: &[String], mode: MathBlockMode) -> Vec<String> {
+    if !matches!(mode, MathBlockMode::Auto | MathBlockMode::Align) {
+        return trim_math_block_rows(rows);
+    }
+
+    let mut normalized: Vec<String> = Vec::with_capacity(rows.len());
+    for row in rows {
+        let trimmed = row.trim();
+        if is_indented_math_continuation(row, trimmed) {
+            if let Some(previous) = normalized.last_mut() {
+                if !row_ends_with_latex_break(previous) {
+                    previous.push(' ');
+                    previous.push_str(trimmed);
+                    continue;
+                }
+            }
+        }
+
+        normalized.push(trimmed.to_string());
+    }
+
+    normalized
+}
+
+fn trim_math_block_rows(rows: &[String]) -> Vec<String> {
+    rows.iter().map(|row| row.trim().to_string()).collect()
+}
+
+fn is_indented_math_continuation(row: &str, trimmed: &str) -> bool {
+    !trimmed.is_empty()
+        && row.chars().next().is_some_and(|ch| ch.is_whitespace())
+        && !starts_with_top_level_relation(trimmed)
+        && find_top_level_char(trimmed, '|').is_none()
 }
 
 fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
@@ -454,6 +492,31 @@ fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
         }
         merged.push(row);
         idx += 1;
+    }
+
+    merged
+}
+
+fn merge_leading_relation_rows(rows: &[String]) -> Vec<String> {
+    let mut merged = Vec::new();
+    let mut idx = 0;
+
+    while idx < rows.len() {
+        if idx + 1 < rows.len()
+            && find_top_level_relation(&rows[idx]).is_none()
+            && find_top_level_char(&rows[idx], '&').is_none()
+            && starts_with_top_level_relation(&rows[idx + 1])
+        {
+            merged.push(format!(
+                "{} {}",
+                rows[idx].trim_end(),
+                rows[idx + 1].trim_start()
+            ));
+            idx += 2;
+        } else {
+            merged.push(rows[idx].clone());
+            idx += 1;
+        }
     }
 
     merged
@@ -2017,6 +2080,44 @@ norm(v{a} - v{b})
             markdown,
             "$$\n\\begin{aligned}\nnorm(v{a} - v{b}) &<= norm(v{a} - v{x}) + norm(v{x} - v{b}) \\\\[0.5em]\n&< eps + eps \\\\[0.5em]\n&= 2eps\n\\end{aligned}\n$$\n"
         );
+    }
+
+    #[test]
+    fn folds_indented_math_continuation_rows() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+lim[i -> inf] (v{a}_i + v{b}_i)
+= lim[i -> inf] v{a}_i
+  + lim[i -> inf] v{b}_i \qquad\text{(1.5.20)}
+:::
+
+:::math
+lim[i-> inf] c_i v{a}_i
+= (lim[i-> inf] c_i )
+  ( lim[i-> inf] v{a}_i ) \qquad\text{(1.5.21)}
+:::
+
+:::math
+lim[i-> inf] (\vec{v{a}_i} dot \vec{v{b}_i} )
+= (lim[i-> inf] \vec{v{a}_i} ) dot
+  ( lim[i-> inf] \vec{v{b}_i} ) \qquad\text{(1.5.22)}
+:::
+
+:::math
+lim[i-> inf] c_i v{a}_i = 0 \qquad\text{(1.5.23)}
+:::"#,
+        );
+
+        assert!(markdown.contains(
+            "lim[i -> inf] (v{a}_i + v{b}_i) = lim[i -> inf] v{a}_i + lim[i -> inf] v{b}_i"
+        ));
+        assert!(markdown
+            .contains("lim[i-> inf] c_i v{a}_i = (lim[i-> inf] c_i ) ( lim[i-> inf] v{a}_i )"));
+        assert!(markdown.contains(
+            r"lim[i-> inf] (\vec{v{a}_i} dot \vec{v{b}_i} ) = (lim[i-> inf] \vec{v{a}_i} ) dot ( lim[i-> inf] \vec{v{b}_i} )"
+        ));
+        assert!(!markdown.contains(r"\begin{aligned}"));
+        assert!(!markdown.contains(r"\\[0.5em]"));
     }
 
     #[test]
