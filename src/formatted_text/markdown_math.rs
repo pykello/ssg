@@ -396,74 +396,65 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
     let block_tag = config.tag.as_deref();
 
     if config.mode == MathBlockMode::System {
-        let (body, mut row_tags) = extract_math_row_tags(&body);
-        let inline_tag = take_only_row_tag(&mut row_tags);
-        let tag = block_tag.or(inline_tag.as_deref());
-        write_system_math_block(output, &body, tag, config.row_gap.as_deref());
+        let rows = TaggedMathRows::extract(&body);
+        write_system_math_block(
+            output,
+            &rows.rows,
+            rows.single_tag(block_tag),
+            config.row_gap.as_deref(),
+        );
         return;
     }
     if config.mode == MathBlockMode::Matrix {
-        let (body, mut row_tags) = extract_math_row_tags(&body);
-        let inline_tag = take_only_row_tag(&mut row_tags);
-        let tag = block_tag.or(inline_tag.as_deref());
-        write_matrix_math_block(output, &body, tag);
+        let rows = TaggedMathRows::extract(&body);
+        write_matrix_math_block(output, &rows.rows, rows.single_tag(block_tag));
         return;
     }
 
     if let Some((prefix, rows)) = parse_block_cases(&body) {
-        let (rows, mut row_tags) = extract_math_row_tags(rows);
-        let inline_tag = take_only_row_tag(&mut row_tags);
-        let tag = block_tag.or(inline_tag.as_deref());
+        let rows = TaggedMathRows::extract(rows);
         output.push_str("$$\n");
         if !prefix.is_empty() {
             output.push_str(&prefix);
             output.push(' ');
         }
         output.push_str("\\begin{cases}\n");
-        output.push_str(&join_case_rows(&rows));
+        output.push_str(&join_case_rows(&rows.rows));
         output.push_str("\n\\end{cases}");
-        push_optional_tag(output, tag);
+        push_optional_tag(output, rows.single_tag(block_tag));
         output.push_str("\n$$\n");
         return;
     }
 
     match config.mode {
         MathBlockMode::Plain => {
-            let (body, mut row_tags) = extract_math_row_tags(&body);
-            let inline_tag = take_only_row_tag(&mut row_tags);
-            let tag = block_tag.or(inline_tag.as_deref());
-            write_plain_math_block(output, &body, tag)
+            let rows = TaggedMathRows::extract(&body);
+            write_plain_math_block(output, &rows.rows, rows.single_tag(block_tag))
         }
         MathBlockMode::Align => {
-            let body = merge_relation_separator_rows(&body);
-            let body = merge_leading_relation_rows(&body);
-            let (body, row_tags) = extract_math_row_tags(&body);
-            let (rows, _) = auto_align_rows(&body);
+            let rows = TaggedMathRows::extract(&merge_relation_rows(&body));
+            let (aligned_rows, _) = auto_align_rows(&rows.rows);
             write_aligned_rows_with_tags(
                 output,
-                &rows,
-                &row_tags,
+                &aligned_rows,
+                &rows.tags,
                 block_tag,
                 config.row_gap.as_deref(),
             )
         }
         MathBlockMode::Auto => {
-            let body = merge_relation_separator_rows(&body);
-            let body = merge_leading_relation_rows(&body);
-            let (body, mut row_tags) = extract_math_row_tags(&body);
-            let (rows, should_align) = auto_align_rows(&body);
+            let rows = TaggedMathRows::extract(&merge_relation_rows(&body));
+            let (aligned_rows, should_align) = auto_align_rows(&rows.rows);
             if should_align {
                 write_aligned_rows_with_tags(
                     output,
-                    &rows,
-                    &row_tags,
+                    &aligned_rows,
+                    &rows.tags,
                     block_tag,
                     config.row_gap.as_deref(),
                 );
             } else {
-                let inline_tag = take_only_row_tag(&mut row_tags);
-                let tag = block_tag.or(inline_tag.as_deref());
-                write_plain_math_block(output, &body, tag);
+                write_plain_math_block(output, &rows.rows, rows.single_tag(block_tag));
             }
         }
         MathBlockMode::System | MathBlockMode::Matrix => unreachable!("handled above"),
@@ -505,20 +496,15 @@ fn is_indented_math_continuation(row: &str, trimmed: &str) -> bool {
         && find_top_level_char(trimmed, '|').is_none()
 }
 
-fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
+fn merge_relation_rows(rows: &[String]) -> Vec<String> {
     let mut merged = Vec::new();
     let mut idx = 0;
 
     while idx < rows.len() {
         let mut row = rows[idx].clone();
-        while idx + 2 < rows.len() && is_relation_separator_row(&rows[idx + 1]) {
-            row = format!(
-                "{} {} {}",
-                row.trim_end(),
-                rows[idx + 1].trim(),
-                rows[idx + 2].trim_start()
-            );
-            idx += 2;
+        while let Some((next_row, consumed)) = merged_relation_row(&row, rows, idx) {
+            row = next_row;
+            idx += consumed;
         }
         merged.push(row);
         idx += 1;
@@ -527,29 +513,31 @@ fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
     merged
 }
 
-fn merge_leading_relation_rows(rows: &[String]) -> Vec<String> {
-    let mut merged = Vec::new();
-    let mut idx = 0;
-
-    while idx < rows.len() {
-        if idx + 1 < rows.len()
-            && find_top_level_relation(&rows[idx]).is_none()
-            && find_top_level_char(&rows[idx], '&').is_none()
-            && starts_with_top_level_relation(&rows[idx + 1])
-        {
-            merged.push(format!(
-                "{} {}",
-                rows[idx].trim_end(),
-                rows[idx + 1].trim_start()
-            ));
-            idx += 2;
-        } else {
-            merged.push(rows[idx].clone());
-            idx += 1;
-        }
+fn merged_relation_row(current: &str, rows: &[String], idx: usize) -> Option<(String, usize)> {
+    if idx + 2 < rows.len() && is_relation_separator_row(&rows[idx + 1]) {
+        return Some((
+            format!(
+                "{} {} {}",
+                current.trim_end(),
+                rows[idx + 1].trim(),
+                rows[idx + 2].trim_start()
+            ),
+            2,
+        ));
     }
 
-    merged
+    if idx + 1 < rows.len()
+        && find_top_level_relation(current).is_none()
+        && find_top_level_char(current, '&').is_none()
+        && starts_with_top_level_relation(&rows[idx + 1])
+    {
+        return Some((
+            format!("{} {}", current.trim_end(), rows[idx + 1].trim_start()),
+            1,
+        ));
+    }
+
+    None
 }
 
 fn is_relation_separator_row(row: &str) -> bool {
@@ -557,43 +545,65 @@ fn is_relation_separator_row(row: &str) -> bool {
     RELATION_TOKENS.contains(&row) || RELATION_WORDS.contains(&row)
 }
 
-fn extract_math_row_tags(rows: &[String]) -> (Vec<String>, Vec<Option<String>>) {
-    let mut filtered_rows = Vec::with_capacity(rows.len());
-    let mut filtered_tags = Vec::with_capacity(rows.len());
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TaggedMathRows {
+    rows: Vec<String>,
+    tags: Vec<Option<String>>,
+}
 
-    for row in rows {
-        let mut row = row.clone();
-        let mut tag = None;
+impl TaggedMathRows {
+    fn extract(rows: &[String]) -> Self {
+        let mut tagged = Self {
+            rows: Vec::with_capacity(rows.len()),
+            tags: Vec::with_capacity(rows.len()),
+        };
 
-        if let Some(pos) = find_top_level_token(&row, "#tag") {
-            let extracted = row[pos + "#tag".len()..].trim();
-            if !extracted.is_empty() {
-                tag = Some(extracted.to_string());
-                row = row[..pos].trim_end().to_string();
-            }
+        for row in rows {
+            tagged.push_tagged_row(row);
         }
+
+        tagged
+    }
+
+    fn push_tagged_row(&mut self, row: &str) {
+        let (row, tag) = split_row_tag(row);
 
         if row.trim().is_empty() {
             if let Some(tag) = tag {
-                if let Some(previous_tag) = filtered_tags.last_mut() {
-                    *previous_tag = Some(tag);
-                }
+                self.attach_tag_to_previous_row(tag);
             }
         } else {
-            filtered_rows.push(row);
-            filtered_tags.push(tag);
+            self.rows.push(row);
+            self.tags.push(tag);
         }
     }
 
-    (filtered_rows, filtered_tags)
-}
-
-fn take_only_row_tag(tags: &mut [Option<String>]) -> Option<String> {
-    if tags.iter().filter(|tag| tag.is_some()).count() != 1 {
-        return None;
+    fn attach_tag_to_previous_row(&mut self, tag: String) {
+        if let Some(previous_tag) = self.tags.last_mut() {
+            *previous_tag = Some(tag);
+        }
     }
 
-    tags.iter_mut().find_map(Option::take)
+    fn single_tag<'a>(&'a self, block_tag: Option<&'a str>) -> Option<&'a str> {
+        block_tag.or_else(|| {
+            let mut tags = self.tags.iter().filter_map(Option::as_deref);
+            let tag = tags.next()?;
+            tags.next().is_none().then_some(tag)
+        })
+    }
+}
+
+fn split_row_tag(row: &str) -> (String, Option<String>) {
+    let Some(pos) = find_top_level_token(row, "#tag") else {
+        return (row.to_string(), None);
+    };
+
+    let tag = row[pos + "#tag".len()..].trim();
+    if tag.is_empty() {
+        (row.to_string(), None)
+    } else {
+        (row[..pos].trim_end().to_string(), Some(tag.to_string()))
+    }
 }
 
 fn parse_block_cases(rows: &[String]) -> Option<(String, &[String])> {
