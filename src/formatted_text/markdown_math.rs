@@ -286,6 +286,7 @@ fn expand_math_shorthand(segment: &str) -> String {
     for (name, open, close) in [
         ("norm", r"\left\lVert ", r" \right\rVert"),
         ("abs", r"\left\lvert ", r" \right\rvert"),
+        ("unit", r"\hat{\mathbf{", "}}"),
         ("v", r"\mathbf{", "}"),
         ("bb", r"\mathbb{", "}"),
         ("cal", r"\mathcal{", "}"),
@@ -294,26 +295,94 @@ fn expand_math_shorthand(segment: &str) -> String {
         output = expand_wrapped_function(&output, name, open, close);
     }
 
+    output = expand_set(&output);
     output = expand_lim(&output);
-    output = expand_plain_parentheses(&output);
+    output = expand_plain_delimiters(&output);
 
-    for (from, to) in [
-        ("forall", r"\forall"),
-        ("exists", r"\exists"),
-        ("eps", r"\epsilon"),
-        ("del", r"\delta"),
-        ("inf", r"\infty"),
-    ] {
+    for (from, to) in [("forall", r"\forall"), ("exists", r"\exists")] {
         output = replace_word(&output, from, to);
+    }
+    for (from, to) in [("eps", r"\epsilon"), ("del", r"\delta"), ("inf", r"\infty")] {
+        output = replace_symbol_prefix(&output, from, to);
     }
 
     output
 }
 
-fn expand_plain_parentheses(input: &str) -> String {
+fn expand_set(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut pos = 0;
-    let mut expanded_depth = 0;
+    let brace_pattern = "set{";
+    let paren_pattern = "set(";
+
+    while pos < input.len() {
+        let rest = &input[pos..];
+        if starts_identifier_function(input, pos, brace_pattern) {
+            if let Some(end) = find_matching(input, pos + brace_pattern.len() - 1, '{', '}') {
+                output.push_str(r"\left\{");
+                output.push_str(&format_set_content(&input[pos + brace_pattern.len()..end]));
+                output.push_str(r"\right\}");
+                pos = end + 1;
+                continue;
+            }
+        } else if starts_identifier_function(input, pos, paren_pattern) {
+            if let Some(end) = find_matching(input, pos + paren_pattern.len() - 1, '(', ')') {
+                output.push_str(r"\left\{");
+                output.push_str(&format_set_content(&input[pos + paren_pattern.len()..end]));
+                output.push_str(r"\right\}");
+                pos = end + 1;
+                continue;
+            }
+        }
+
+        let ch = rest.chars().next().expect("pos is on a char boundary");
+        output.push(ch);
+        pos += ch.len_utf8();
+    }
+
+    output
+}
+
+fn format_set_content(content: &str) -> String {
+    if let Some(split) = find_top_level_char(content, '|') {
+        let (value, condition) = content.split_at(split);
+        format!("{} \\;\\middle|\\; {}", value.trim(), condition[1..].trim())
+    } else {
+        content.to_string()
+    }
+}
+
+fn find_top_level_char(input: &str, target: char) -> Option<usize> {
+    let mut paren_depth = 0;
+    let mut brace_depth = 0;
+    let mut bracket_depth = 0;
+
+    for (idx, ch) in input.char_indices() {
+        if is_escaped(input, idx) {
+            continue;
+        }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' if paren_depth > 0 => paren_depth -= 1,
+            '{' => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            '[' => bracket_depth += 1,
+            ']' if bracket_depth > 0 => bracket_depth -= 1,
+            _ if ch == target && paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
+                return Some(idx);
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn expand_plain_delimiters(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut pos = 0;
+    let mut paren_depth = 0;
+    let mut bracket_depth = 0;
 
     while pos < input.len() {
         let ch = input[pos..]
@@ -322,11 +391,26 @@ fn expand_plain_parentheses(input: &str) -> String {
             .expect("pos is on a char boundary");
         if ch == '(' && !is_escaped(input, pos) && !output.trim_end().ends_with(r"\left") {
             output.push_str(r"\left(");
-            expanded_depth += 1;
+            paren_depth += 1;
         } else if ch == ')' && !is_escaped(input, pos) && !output.trim_end().ends_with(r"\right") {
-            if expanded_depth > 0 {
+            if paren_depth > 0 {
                 output.push_str(r"\right)");
-                expanded_depth -= 1;
+                paren_depth -= 1;
+            } else {
+                output.push(ch);
+            }
+        } else if ch == '['
+            && !is_escaped(input, pos)
+            && !output.trim_end().ends_with(r"\left")
+            && !output.trim_end().ends_with(r"\\")
+            && !previous_output_token_is_latex_command(&output)
+        {
+            output.push_str(r"\left[");
+            bracket_depth += 1;
+        } else if ch == ']' && !is_escaped(input, pos) && !output.trim_end().ends_with(r"\right") {
+            if bracket_depth > 0 {
+                output.push_str(r"\right]");
+                bracket_depth -= 1;
             } else {
                 output.push(ch);
             }
@@ -337,6 +421,22 @@ fn expand_plain_parentheses(input: &str) -> String {
     }
 
     output
+}
+
+fn previous_output_token_is_latex_command(output: &str) -> bool {
+    let trimmed = output.trim_end();
+    let mut command_len = 0;
+    for ch in trimmed.chars().rev() {
+        if ch.is_ascii_alphabetic() {
+            command_len += 1;
+        } else {
+            break;
+        }
+    }
+    if command_len == 0 || command_len == trimmed.len() {
+        return false;
+    }
+    trimmed[..trimmed.len() - command_len].ends_with('\\')
 }
 
 fn expand_wrapped_function(input: &str, name: &str, open: &str, close: &str) -> String {
@@ -469,6 +569,34 @@ fn replace_word(input: &str, from: &str, to: &str) -> String {
     output
 }
 
+fn replace_symbol_prefix(input: &str, from: &str, to: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut pos = 0;
+
+    while pos < input.len() {
+        if input[pos..].starts_with(from)
+            && !is_escaped(input, pos)
+            && !previous_char(input, pos).is_some_and(is_identifier_char)
+            && !input[pos + from.len()..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphanumeric())
+        {
+            output.push_str(to);
+            pos += from.len();
+        } else {
+            let ch = input[pos..]
+                .chars()
+                .next()
+                .expect("pos is on a char boundary");
+            output.push(ch);
+            pos += ch.len_utf8();
+        }
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,6 +692,19 @@ $$"#
         assert_eq!(
             protected.segments[0],
             r"$\left(x + y\right) + \left(a + b\right)$"
+        );
+    }
+
+    #[test]
+    fn expands_additional_math_shorthand_forms() {
+        let protected = protect_math(
+            r"$A[0] + \sqrt[n] + \\[1em] + unit{n} + eps_0 + del_a + inf_n + set(v{x} in bb{R} | norm(v{x}) <= 1)$",
+            true,
+        );
+
+        assert_eq!(
+            protected.segments[0],
+            r"$A\left[0\right] + \sqrt[n] + \\[1em] + \hat{\mathbf{n}} + \epsilon_0 + \delta_a + \infty_n + \left\{\mathbf{x} in \mathbb{R} \;\middle|\; \left\lVert \mathbf{x} \right\rVert \le 1\right\}$"
         );
     }
 
