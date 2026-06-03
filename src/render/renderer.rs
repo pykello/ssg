@@ -34,23 +34,18 @@ impl Renderer {
 
         match self.tera.render(template_name, &context) {
             Ok(s) => Ok(s),
-            Err(e) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Error rendering template: {:#?}", e),
-            ))),
+            Err(e) => Err(Box::new(std::io::Error::other(format!(
+                "Error rendering template: {:#?}",
+                e
+            )))),
         }
     }
 }
 
 fn load_templates(config: &Config) -> Result<Tera, Box<dyn Error>> {
     let templates_path = config.template_dir.join("**/*.html");
-    Tera::new(&templates_path.to_string_lossy()).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Error parsing templates: {}", e),
-        )
-        .into()
-    })
+    Tera::new(&templates_path.to_string_lossy())
+        .map_err(|e| std::io::Error::other(format!("Error parsing templates: {}", e)).into())
 }
 
 fn load_configured_translations(
@@ -58,11 +53,7 @@ fn load_configured_translations(
 ) -> Result<HashMap<String, String>, Box<dyn Error>> {
     match &config.translations_csv {
         Some(translations_file) => load_translations(translations_file).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Error loading translations: {}", e),
-            )
-            .into()
+            std::io::Error::other(format!("Error loading translations: {}", e)).into()
         }),
         None => Ok(HashMap::new()),
     }

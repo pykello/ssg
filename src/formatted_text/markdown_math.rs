@@ -460,7 +460,7 @@ fn merge_relation_separator_rows(rows: &[String]) -> Vec<String> {
 
 fn is_relation_separator_row(row: &str) -> bool {
     let row = row.trim();
-    RELATION_TOKENS.iter().any(|token| row == *token)
+    RELATION_TOKENS.contains(&row)
 }
 
 fn extract_math_block_tag(rows: &[String]) -> (Vec<String>, Option<String>) {
@@ -1284,13 +1284,14 @@ fn find_top_level_token_from(input: &str, targets: &[&str]) -> Option<usize> {
             '}' if brace_depth > 0 => brace_depth -= 1,
             '[' => bracket_depth += 1,
             ']' if bracket_depth > 0 => bracket_depth -= 1,
-            _ if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
-                if targets
+            _ if paren_depth == 0
+                && brace_depth == 0
+                && bracket_depth == 0
+                && targets
                     .iter()
-                    .any(|target| input[idx..].starts_with(target))
-                {
-                    return Some(idx);
-                }
+                    .any(|target| input[idx..].starts_with(target)) =>
+            {
+                return Some(idx);
             }
             _ => {}
         }
