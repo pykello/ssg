@@ -70,7 +70,7 @@ fn cli_command() -> Command {
     Command::new("ssg-list")
         .version("1.0")
         .author("Hadi Moshayedi")
-        .about("Generates paginated list pages from content")
+        .about("Generates list pages from content")
         .arg(
             Arg::new("path")
                 .help("Path to the index.yaml configuration file")
