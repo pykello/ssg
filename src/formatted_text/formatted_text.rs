@@ -495,46 +495,59 @@ $$"#;
     }
 
     #[test]
-    fn test_math_shorthand_blocks_are_config_gated() {
+    fn test_unified_math_blocks_are_config_gated() {
         let mut config = get_test_config();
         config.escape_markdown_in_math = false;
-        let input = r#":::align
-v{x} &= v{y}
-&=> norm(v{x}) <= eps
+        let input = r#":::math
+v{x} = v{y}
+=> norm(v{x}) <= eps
 :::"#;
 
         let output = markdown_to_html(input, &config).unwrap();
-        assert!(output.contains(":::align"));
+        assert!(output.contains(":::math"));
 
         config.math_shorthand = true;
         let output = markdown_to_html(input, &config).unwrap();
 
-        assert!(output.contains(r"\begin{align*}"));
+        assert!(output.contains(r"\begin{aligned}"));
         assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
         assert!(output.contains(r"&\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon"));
-        assert!(!output.contains(":::align"));
+        assert!(!output.contains(":::math"));
     }
 
     #[test]
-    fn test_math_shorthand_blocks_work_inside_expandables() {
+    fn test_inline_cases_work_with_math_shorthand() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+        config.math_shorthand = true;
+
+        let output = markdown_to_html("$abs(x) = cases(x | x >= 0; -x | x < 0)$", &config).unwrap();
+
+        assert!(output.contains(r"\begin{cases}"));
+        assert!(output.contains(r"x & x \ge 0"));
+        assert!(output.contains(r"-x & x < 0"));
+    }
+
+    #[test]
+    fn test_unified_math_blocks_work_inside_expandables() {
         let mut config = get_test_config();
         config.escape_markdown_in_math = false;
         config.math_shorthand = true;
         let input = r#":::expandable
 **Proof.** [Click]
 
-:::align
-v{x} &= v{y}
-&=> norm(v{x}) <= eps
+:::math
+v{x} = v{y}
+=> norm(v{x}) <= eps
 :::
 ::::"#;
 
         let output = markdown_to_html(input, &config).unwrap();
 
         assert!(output.contains(r#"class="collapse""#));
-        assert!(output.contains(r"\begin{align*}"));
+        assert!(output.contains(r"\begin{aligned}"));
         assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
-        assert!(!output.contains(":::align"));
+        assert!(!output.contains(":::math"));
     }
 
     #[test]

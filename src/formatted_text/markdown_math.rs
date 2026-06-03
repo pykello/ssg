@@ -27,6 +27,8 @@ const WORD_REPLACEMENTS: &[Replacement] = &[("forall", r"\forall"), ("exists", r
 const SYMBOL_PREFIX_REPLACEMENTS: &[Replacement] =
     &[("eps", r"\epsilon"), ("del", r"\delta"), ("inf", r"\infty")];
 
+const RELATION_TOKENS: &[&str] = &["<=>", "=>", "->", "!=", "<=", ">=", "=", "<", ">"];
+
 #[derive(Debug, Clone, Copy)]
 struct FunctionCall {
     content_start: usize,
@@ -34,10 +36,11 @@ struct FunctionCall {
     next_pos: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum ShorthandBlock<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathBlockMode {
+    Auto,
+    Plain,
     Align,
-    Cases { expr: &'a str },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,9 +180,9 @@ pub fn preprocess_math_shorthand_blocks(markdown: &str) -> String {
             in_fence = !in_fence;
             append_markdown_line(&mut output, line);
         } else if !in_fence {
-            if let Some(block) = parse_shorthand_block(line) {
+            if let Some(mode) = parse_math_block(line) {
                 let body = collect_shorthand_block_body(&mut lines, &mut in_fence);
-                write_shorthand_block(&mut output, block, &body);
+                write_math_block(&mut output, mode, &body);
             } else {
                 append_markdown_line(&mut output, line);
             }
@@ -201,14 +204,19 @@ fn is_fence_line(line: &str) -> bool {
     line.starts_with("```") || line.starts_with("~~~")
 }
 
-fn parse_shorthand_block(line: &str) -> Option<ShorthandBlock<'_>> {
-    let trimmed = line.trim();
-    if trimmed == ":::align" {
-        Some(ShorthandBlock::Align)
+fn parse_math_block(line: &str) -> Option<MathBlockMode> {
+    let trimmed_line = line.trim();
+    if trimmed_line == ":::math" {
+        Some(MathBlockMode::Auto)
+    } else if let Some(mode) = trimmed_line.strip_prefix(":::math ") {
+        Some(match mode.trim() {
+            "auto" => MathBlockMode::Auto,
+            "plain" => MathBlockMode::Plain,
+            "align" => MathBlockMode::Align,
+            _ => return None,
+        })
     } else {
-        trimmed
-            .strip_prefix(":::cases ")
-            .map(|expr| ShorthandBlock::Cases { expr: expr.trim() })
+        None
     }
 }
 
@@ -239,21 +247,90 @@ fn is_shorthand_block_close(trimmed_line: &str) -> bool {
     trimmed_line == ":::" || trimmed_line == "::::"
 }
 
-fn write_shorthand_block(output: &mut String, block: ShorthandBlock<'_>, body: &[String]) {
-    match block {
-        ShorthandBlock::Align => {
-            output.push_str("$$\n\\begin{align*}\n");
-            output.push_str(&join_math_rows(body));
-            output.push_str("\n\\end{align*}\n$$\n");
+fn write_math_block(output: &mut String, mode: MathBlockMode, body: &[String]) {
+    if let Some((prefix, rows)) = parse_block_cases(body) {
+        output.push_str("$$\n");
+        if !prefix.is_empty() {
+            output.push_str(&prefix);
+            output.push(' ');
         }
-        ShorthandBlock::Cases { expr } => {
-            output.push_str("$$\n");
-            output.push_str(expr);
-            output.push_str(" = \\begin{cases}\n");
-            output.push_str(&join_case_rows(body));
-            output.push_str("\n\\end{cases}\n$$\n");
+        output.push_str("\\begin{cases}\n");
+        output.push_str(&join_case_rows(rows));
+        output.push_str("\n\\end{cases}\n$$\n");
+        return;
+    }
+
+    match mode {
+        MathBlockMode::Plain => write_plain_math_block(output, body),
+        MathBlockMode::Align => write_aligned_math_block(output, body),
+        MathBlockMode::Auto => {
+            let (rows, should_align) = auto_align_rows(body);
+            if should_align {
+                write_aligned_rows(output, &rows);
+            } else {
+                write_plain_math_block(output, body);
+            }
         }
     }
+}
+
+fn parse_block_cases(rows: &[String]) -> Option<(String, &[String])> {
+    let first = rows.first()?;
+    let marker = find_top_level_token(first, "cases:")?;
+    if rows.len() < 2 {
+        return None;
+    }
+
+    Some((first[..marker].trim_end().to_string(), &rows[1..]))
+}
+
+fn write_plain_math_block(output: &mut String, rows: &[String]) {
+    output.push_str("$$\n");
+    output.push_str(&rows.join("\n"));
+    output.push_str("\n$$\n");
+}
+
+fn write_aligned_math_block(output: &mut String, rows: &[String]) {
+    let (rows, _) = auto_align_rows(rows);
+    write_aligned_rows(output, &rows);
+}
+
+fn write_aligned_rows(output: &mut String, rows: &[String]) {
+    output.push_str("$$\n\\begin{aligned}\n");
+    output.push_str(&join_math_rows(rows));
+    output.push_str("\n\\end{aligned}\n$$\n");
+}
+
+fn auto_align_rows(rows: &[String]) -> (Vec<String>, bool) {
+    let mut should_align = false;
+    let rows: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            let (row, aligned) = auto_align_row(row);
+            should_align |= aligned;
+            row
+        })
+        .collect();
+
+    let should_align = should_align && rows.len() > 1;
+    (rows, should_align)
+}
+
+fn auto_align_row(row: &str) -> (String, bool) {
+    if find_top_level_char(row, '&').is_some() {
+        return (row.to_string(), true);
+    }
+
+    if let Some(pos) = find_top_level_relation(row) {
+        let (prefix, suffix) = row.split_at(pos);
+        (format!("{prefix}&{suffix}"), true)
+    } else {
+        (row.to_string(), false)
+    }
+}
+
+fn find_top_level_relation(input: &str) -> Option<usize> {
+    find_top_level_token_from(input, RELATION_TOKENS)
 }
 
 fn join_math_rows(rows: &[String]) -> String {
@@ -274,10 +351,7 @@ fn join_case_rows(rows: &[String]) -> String {
     rows.iter()
         .enumerate()
         .map(|(idx, row)| {
-            let row = row
-                .split_once('|')
-                .map(|(value, condition)| format!("{} & {}", value.trim(), condition.trim()))
-                .unwrap_or_else(|| row.clone());
+            let row = format_case_row(row).unwrap_or_else(|| row.clone());
             if idx + 1 == rows.len() || row.ends_with(r"\\") {
                 row
             } else {
@@ -286,6 +360,12 @@ fn join_case_rows(rows: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn format_case_row(row: &str) -> Option<String> {
+    let split = find_top_level_char(row, '|')?;
+    let (value, condition) = row.split_at(split);
+    Some(format!("{} & {}", value.trim(), condition[1..].trim()))
 }
 
 fn strip_blockquote_markers(segment: &str) -> String {
@@ -339,6 +419,8 @@ fn unescape_markdown_operators_in_math(segment: &str) -> String {
 fn expand_math_shorthand(segment: &str) -> String {
     let mut output = segment.to_string();
 
+    output = expand_cases(&output);
+
     for &(from, to) in OPERATOR_REPLACEMENTS {
         output = output.replace(from, to);
     }
@@ -359,6 +441,43 @@ fn expand_math_shorthand(segment: &str) -> String {
     }
 
     output
+}
+
+fn expand_cases(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut pos = 0;
+    let pattern = "cases(";
+
+    while pos < input.len() {
+        if let Some(call) = find_function_call(input, pos, pattern, '(', ')') {
+            if let Some(rows) =
+                format_inline_cases_content(&input[call.content_start..call.content_end])
+            {
+                output.push_str(r"\begin{cases}");
+                output.push_str(&rows);
+                output.push_str(r"\end{cases}");
+                pos = call.next_pos;
+                continue;
+            }
+        }
+
+        copy_current_char(input, &mut output, &mut pos);
+    }
+
+    output
+}
+
+fn format_inline_cases_content(content: &str) -> Option<String> {
+    let rows = split_top_level_char(content, ';')
+        .into_iter()
+        .map(|arm| format_case_row(arm.trim()))
+        .collect::<Option<Vec<_>>>()?;
+
+    if rows.is_empty() {
+        None
+    } else {
+        Some(join_math_rows(&rows))
+    }
 }
 
 fn expand_set(input: &str) -> String {
@@ -397,6 +516,14 @@ fn format_set_content(content: &str) -> String {
 }
 
 fn find_top_level_char(input: &str, target: char) -> Option<usize> {
+    find_top_level_token(input, &target.to_string())
+}
+
+fn find_top_level_token(input: &str, target: &str) -> Option<usize> {
+    find_top_level_token_from(input, &[target])
+}
+
+fn find_top_level_token_from(input: &str, targets: &[&str]) -> Option<usize> {
     let mut paren_depth = 0;
     let mut brace_depth = 0;
     let mut bracket_depth = 0;
@@ -412,8 +539,13 @@ fn find_top_level_char(input: &str, target: char) -> Option<usize> {
             '}' if brace_depth > 0 => brace_depth -= 1,
             '[' => bracket_depth += 1,
             ']' if bracket_depth > 0 => bracket_depth -= 1,
-            _ if ch == target && paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
-                return Some(idx);
+            _ if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
+                if targets
+                    .iter()
+                    .any(|target| input[idx..].starts_with(target))
+                {
+                    return Some(idx);
+                }
             }
             _ => {}
         }
@@ -422,16 +554,35 @@ fn find_top_level_char(input: &str, target: char) -> Option<usize> {
     None
 }
 
+fn split_top_level_char(input: &str, target: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut rest = input;
+
+    while let Some(pos) = find_top_level_char(rest, target) {
+        parts.push(rest[..pos].trim());
+        let next = pos + target.len_utf8();
+        start += next;
+        rest = &input[start..];
+    }
+
+    parts.push(rest.trim());
+    parts
+}
+
 fn expand_plain_delimiters(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut pos = 0;
     let mut paren_depth = 0;
     let mut bracket_depth = 0;
+    let matched_delimiters = matched_plain_delimiter_positions(input);
 
     while pos < input.len() {
         let ch = current_char(input, pos);
         match ch {
-            '(' if should_expand_open_paren(input, pos, &output) => {
+            '(' if should_expand_open_paren(input, pos, &output)
+                && matched_delimiters.contains(&pos) =>
+            {
                 output.push_str(r"\left(");
                 paren_depth += 1;
             }
@@ -443,7 +594,9 @@ fn expand_plain_delimiters(input: &str) -> String {
                     output.push(ch);
                 }
             }
-            '[' if should_expand_open_bracket(input, pos, &output) => {
+            '[' if should_expand_open_bracket(input, pos, &output)
+                && matched_delimiters.contains(&pos) =>
+            {
                 output.push_str(r"\left[");
                 bracket_depth += 1;
             }
@@ -461,6 +614,36 @@ fn expand_plain_delimiters(input: &str) -> String {
     }
 
     output
+}
+
+fn matched_plain_delimiter_positions(input: &str) -> std::collections::HashSet<usize> {
+    let mut matched = std::collections::HashSet::new();
+    let mut stack = Vec::new();
+
+    for (idx, ch) in input.char_indices() {
+        if is_escaped(input, idx) {
+            continue;
+        }
+
+        match ch {
+            '(' | '[' => stack.push((ch, idx)),
+            ')' | ']' => {
+                if let Some((open, open_idx)) = stack.pop() {
+                    if plain_delimiters_match(open, ch) {
+                        matched.insert(open_idx);
+                        matched.insert(idx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    matched
+}
+
+fn plain_delimiters_match(open: char, close: char) -> bool {
+    matches!((open, close), ('(', ')') | ('[', ']'))
 }
 
 fn should_expand_open_paren(input: &str, pos: usize, output: &str) -> bool {
@@ -751,6 +934,13 @@ $$"#
     }
 
     #[test]
+    fn leaves_mixed_interval_delimiters_unscaled() {
+        let protected = protect_math(r"$[0, 1) \cup (2, 3]$", true);
+
+        assert_eq!(protected.segments[0], r"$[0, 1) \cup (2, 3]$");
+    }
+
+    #[test]
     fn expands_additional_math_shorthand_forms() {
         let protected = protect_math(
             r"$A[0] + \sqrt[n] + \\[1em] + unit{n} + eps_0 + del_a + inf_n + set(v{x} in bb{R} | norm(v{x}) <= 1)$",
@@ -760,6 +950,16 @@ $$"#
         assert_eq!(
             protected.segments[0],
             r"$A\left[0\right] + \sqrt[n] + \\[1em] + \hat{\mathbf{n}} + \epsilon_0 + \delta_a + \infty_n + \left\{\mathbf{x} in \mathbb{R} \;\middle|\; \left\lVert \mathbf{x} \right\rVert \le 1\right\}$"
+        );
+    }
+
+    #[test]
+    fn expands_inline_cases() {
+        let protected = protect_math(r"$abs(x) = cases(x | x >= 0; -x | x < 0)$", true);
+
+        assert_eq!(
+            protected.segments[0],
+            "$\\left\\lvert x \\right\\rvert = \\begin{cases}x & x \\ge 0 \\\\\n-x & x < 0\\end{cases}$"
         );
     }
 
@@ -781,26 +981,66 @@ $$"#
     }
 
     #[test]
-    fn preprocesses_align_blocks() {
+    fn preprocesses_plain_math_blocks() {
         let markdown = preprocess_math_shorthand_blocks(
             r#"before
-:::align
-a &= b
-&= c
+:::math
+x^2 + y^2 = r^2
 :::
 after"#,
         );
 
+        assert_eq!(markdown, "before\n$$\nx^2 + y^2 = r^2\n$$\nafter\n");
+    }
+
+    #[test]
+    fn preprocesses_auto_aligned_math_blocks() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+S_n = sum[k=1..n] a_k
+= a_1 + ... + a_n
+<= n max[k] abs(a_k)
+:::"#,
+        );
+
         assert_eq!(
             markdown,
-            "before\n$$\n\\begin{align*}\na &= b \\\\\n&= c\n\\end{align*}\n$$\nafter\n"
+            "$$\n\\begin{aligned}\nS_n &= sum[k=1..n] a_k \\\\\n&= a_1 + ... + a_n \\\\\n&<= n max[k] abs(a_k)\n\\end{aligned}\n$$\n"
         );
     }
 
     #[test]
-    fn preprocesses_cases_blocks() {
+    fn preprocesses_explicit_aligned_math_blocks() {
         let markdown = preprocess_math_shorthand_blocks(
-            r#":::cases f(x)
+            r#":::math
+f(x) &= x^2
+g(x) &= x^3
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\\ng(x) &= x^3\n\\end{aligned}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_plain_mode_math_blocks() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math plain
+a = b
+c = d
+:::"#,
+        );
+
+        assert_eq!(markdown, "$$\na = b\nc = d\n$$\n");
+    }
+
+    #[test]
+    fn preprocesses_math_block_cases() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+f(x) = cases:
 1 | x != 0
 0 | x = 0
 :::"#,
@@ -816,12 +1056,12 @@ after"#,
     fn leaves_shorthand_blocks_inside_code_fences() {
         let markdown = preprocess_math_shorthand_blocks(
             r#"```text
-:::align
-a &= b
+:::math
+x = y
 :::
 ```"#,
         );
 
-        assert_eq!(markdown, "```text\n:::align\na &= b\n:::\n```\n");
+        assert_eq!(markdown, "```text\n:::math\nx = y\n:::\n```\n");
     }
 }
