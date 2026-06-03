@@ -156,7 +156,10 @@ impl<'a> MathProtector<'a> {
 
     fn protect(&mut self) {
         while self.pos < self.input.len() {
-            if self.starts_unescaped("$$") {
+            if self.at_line_start() && self.starts_code_fence_line() {
+                self.push_code_fence_block();
+                continue;
+            } else if self.starts_unescaped("$$") {
                 if let Some(end) = self.find_math_end("$$", self.pos + 2) {
                     self.push_segment(end + 2);
                     continue;
@@ -170,6 +173,41 @@ impl<'a> MathProtector<'a> {
 
             self.push_next_char();
         }
+    }
+
+    fn at_line_start(&self) -> bool {
+        self.pos == 0 || self.input[..self.pos].ends_with('\n')
+    }
+
+    fn starts_code_fence_line(&self) -> bool {
+        let line = self.current_line_without_newline();
+        is_fence_line(line.trim_end_matches('\r'))
+    }
+
+    fn current_line_without_newline(&self) -> &str {
+        let end = self.input[self.pos..]
+            .find('\n')
+            .map_or(self.input.len(), |relative| self.pos + relative);
+        &self.input[self.pos..end]
+    }
+
+    fn push_code_fence_block(&mut self) {
+        self.push_current_line();
+        while self.pos < self.input.len() {
+            let is_closing_fence = self.starts_code_fence_line();
+            self.push_current_line();
+            if is_closing_fence {
+                break;
+            }
+        }
+    }
+
+    fn push_current_line(&mut self) {
+        let end = self.input[self.pos..]
+            .find('\n')
+            .map_or(self.input.len(), |relative| self.pos + relative + 1);
+        self.output.push_str(&self.input[self.pos..end]);
+        self.pos = end;
     }
 
     fn starts_unescaped(&self, delimiter: &str) -> bool {
@@ -1465,6 +1503,49 @@ $$"#
             protected.segments[0],
             r"$\left\lVert \mathbf{x} - \mathbf{y} \right\rVert \le \epsilon \implies \lim_{x \to 0} \left(f\left(x\right) + 1\right) \ne \infty$"
         );
+    }
+
+    #[test]
+    fn leaves_inline_math_inside_code_fences() {
+        let protected = protect_math(
+            r#"```text
+$norm(v{x}) <= eps$
+```
+
+$norm(v{x}) <= eps$"#,
+            true,
+        );
+
+        assert_eq!(
+            protected.markdown(),
+            "```text\n$norm(v{x}) <= eps$\n```\n\nMATHSEGMENTPLACEHOLDER000000"
+        );
+        assert_eq!(
+            protected.segments[0],
+            r"$\left\lVert \mathbf{x} \right\rVert \le \epsilon$"
+        );
+    }
+
+    #[test]
+    fn leaves_display_math_inside_code_fences() {
+        let protected = protect_math(
+            r#"```text
+$$
+sum[i=1..n](a_i)
+$$
+```
+
+$$
+sum[i=1..n](a_i)
+$$"#,
+            true,
+        );
+
+        assert_eq!(
+            protected.markdown(),
+            "```text\n$$\nsum[i=1..n](a_i)\n$$\n```\n\nMATHSEGMENTPLACEHOLDER000000"
+        );
+        assert_eq!(protected.segments[0], "$$\n\\sum_{i=1}^{n} a_i\n$$");
     }
 
     #[test]
