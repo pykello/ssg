@@ -554,17 +554,32 @@ fn push_optional_tag(output: &mut String, tag: Option<&str>) {
 
 fn auto_align_rows(rows: &[String]) -> (Vec<String>, bool) {
     let mut should_align = false;
-    let rows: Vec<String> = rows
-        .iter()
-        .map(|row| {
-            let (row, aligned) = auto_align_row(row);
-            should_align |= aligned;
-            row
-        })
-        .collect();
+    let mut aligned_rows = Vec::with_capacity(rows.len());
+    let mut idx = 0;
 
-    let should_align = should_align && rows.len() > 1;
-    (rows, should_align)
+    while idx < rows.len() {
+        if idx + 1 < rows.len()
+            && find_top_level_relation(&rows[idx]).is_none()
+            && find_top_level_char(&rows[idx], '&').is_none()
+            && starts_with_top_level_relation(&rows[idx + 1])
+        {
+            let relation_row = rows[idx + 1].trim_start();
+            let (row, aligned) =
+                auto_align_row(&format!("{} {}", rows[idx].trim_end(), relation_row));
+            should_align |= aligned;
+            aligned_rows.push(row);
+            idx += 2;
+            continue;
+        }
+
+        let (row, aligned) = auto_align_row(&rows[idx]);
+        should_align |= aligned;
+        aligned_rows.push(row);
+        idx += 1;
+    }
+
+    let should_align = should_align && aligned_rows.len() > 1;
+    (aligned_rows, should_align)
 }
 
 fn auto_align_row(row: &str) -> (String, bool) {
@@ -582,6 +597,10 @@ fn auto_align_row(row: &str) -> (String, bool) {
 
 fn find_top_level_relation(input: &str) -> Option<usize> {
     find_top_level_token_from(input, RELATION_TOKENS)
+}
+
+fn starts_with_top_level_relation(row: &str) -> bool {
+    find_top_level_relation(row).is_some_and(|pos| row[..pos].trim().is_empty())
 }
 
 fn join_math_rows(rows: &[String], row_gap: Option<&str>) -> String {
@@ -1946,6 +1965,23 @@ S_n = sum[k=1..n] a_k
         assert_eq!(
             markdown,
             "$$\n\\begin{aligned}\nS_n &= sum[k=1..n] a_k \\\\[0.5em]\n&= a_1 + ... + a_n \\\\[0.5em]\n&<= n max[k] abs(a_k)\n\\end{aligned}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_auto_aligned_relation_chain_blocks() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+norm(v{a} - v{b})
+<= norm(v{a} - v{x}) + norm(v{x} - v{b})
+< eps + eps
+= 2eps
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nnorm(v{a} - v{b}) &<= norm(v{a} - v{x}) + norm(v{x} - v{b}) \\\\[0.5em]\n&< eps + eps \\\\[0.5em]\n&= 2eps\n\\end{aligned}\n$$\n"
         );
     }
 
