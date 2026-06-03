@@ -161,7 +161,8 @@ neighboring rows so source can be split for readability without forcing a
 standalone rendered relation line.
 
 Add `tag=...` on the opening line, or `#tag ...` inside a row, to emit
-`\tag{...}`.
+`\tag{...}`. A standalone `#tag ...` line applies to the previous row. Multiple
+tagged rows in an aligned block are emitted as separate tagged display rows.
 
 Use `cases:` inside `:::math` for piecewise definitions:
 

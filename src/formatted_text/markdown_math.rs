@@ -393,26 +393,34 @@ fn is_shorthand_block_close(trimmed_line: &str) -> bool {
 
 fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[String]) {
     let body = normalize_math_block_rows(body, config.mode);
-    let (body, inline_tag) = extract_math_block_tag(&body);
-    let tag = config.tag.as_deref().or(inline_tag.as_deref());
+    let block_tag = config.tag.as_deref();
 
     if config.mode == MathBlockMode::System {
+        let (body, mut row_tags) = extract_math_row_tags(&body);
+        let inline_tag = take_only_row_tag(&mut row_tags);
+        let tag = block_tag.or(inline_tag.as_deref());
         write_system_math_block(output, &body, tag, config.row_gap.as_deref());
         return;
     }
     if config.mode == MathBlockMode::Matrix {
+        let (body, mut row_tags) = extract_math_row_tags(&body);
+        let inline_tag = take_only_row_tag(&mut row_tags);
+        let tag = block_tag.or(inline_tag.as_deref());
         write_matrix_math_block(output, &body, tag);
         return;
     }
 
     if let Some((prefix, rows)) = parse_block_cases(&body) {
+        let (rows, mut row_tags) = extract_math_row_tags(rows);
+        let inline_tag = take_only_row_tag(&mut row_tags);
+        let tag = block_tag.or(inline_tag.as_deref());
         output.push_str("$$\n");
         if !prefix.is_empty() {
             output.push_str(&prefix);
             output.push(' ');
         }
         output.push_str("\\begin{cases}\n");
-        output.push_str(&join_case_rows(rows));
+        output.push_str(&join_case_rows(&rows));
         output.push_str("\n\\end{cases}");
         push_optional_tag(output, tag);
         output.push_str("\n$$\n");
@@ -420,19 +428,41 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
     }
 
     match config.mode {
-        MathBlockMode::Plain => write_plain_math_block(output, &body, tag),
+        MathBlockMode::Plain => {
+            let (body, mut row_tags) = extract_math_row_tags(&body);
+            let inline_tag = take_only_row_tag(&mut row_tags);
+            let tag = block_tag.or(inline_tag.as_deref());
+            write_plain_math_block(output, &body, tag)
+        }
         MathBlockMode::Align => {
             let body = merge_relation_separator_rows(&body);
             let body = merge_leading_relation_rows(&body);
-            write_aligned_math_block(output, &body, tag, config.row_gap.as_deref())
+            let (body, row_tags) = extract_math_row_tags(&body);
+            let (rows, _) = auto_align_rows(&body);
+            write_aligned_rows_with_tags(
+                output,
+                &rows,
+                &row_tags,
+                block_tag,
+                config.row_gap.as_deref(),
+            )
         }
         MathBlockMode::Auto => {
             let body = merge_relation_separator_rows(&body);
             let body = merge_leading_relation_rows(&body);
+            let (body, mut row_tags) = extract_math_row_tags(&body);
             let (rows, should_align) = auto_align_rows(&body);
             if should_align {
-                write_aligned_rows(output, &rows, tag, config.row_gap.as_deref());
+                write_aligned_rows_with_tags(
+                    output,
+                    &rows,
+                    &row_tags,
+                    block_tag,
+                    config.row_gap.as_deref(),
+                );
             } else {
+                let inline_tag = take_only_row_tag(&mut row_tags);
+                let tag = block_tag.or(inline_tag.as_deref());
                 write_plain_math_block(output, &body, tag);
             }
         }
@@ -527,23 +557,43 @@ fn is_relation_separator_row(row: &str) -> bool {
     RELATION_TOKENS.contains(&row) || RELATION_WORDS.contains(&row)
 }
 
-fn extract_math_block_tag(rows: &[String]) -> (Vec<String>, Option<String>) {
-    let mut tag = None;
-    let mut rows = rows.to_vec();
+fn extract_math_row_tags(rows: &[String]) -> (Vec<String>, Vec<Option<String>>) {
+    let mut filtered_rows = Vec::with_capacity(rows.len());
+    let mut filtered_tags = Vec::with_capacity(rows.len());
 
-    for row in &mut rows {
-        if let Some(pos) = find_top_level_token(row, "#tag") {
+    for row in rows {
+        let mut row = row.clone();
+        let mut tag = None;
+
+        if let Some(pos) = find_top_level_token(&row, "#tag") {
             let extracted = row[pos + "#tag".len()..].trim();
             if !extracted.is_empty() {
                 tag = Some(extracted.to_string());
-                *row = row[..pos].trim_end().to_string();
-                break;
+                row = row[..pos].trim_end().to_string();
             }
+        }
+
+        if row.trim().is_empty() {
+            if let Some(tag) = tag {
+                if let Some(previous_tag) = filtered_tags.last_mut() {
+                    *previous_tag = Some(tag);
+                }
+            }
+        } else {
+            filtered_rows.push(row);
+            filtered_tags.push(tag);
         }
     }
 
-    rows.retain(|row| !row.trim().is_empty());
-    (rows, tag)
+    (filtered_rows, filtered_tags)
+}
+
+fn take_only_row_tag(tags: &mut [Option<String>]) -> Option<String> {
+    if tags.iter().filter(|tag| tag.is_some()).count() != 1 {
+        return None;
+    }
+
+    tags.iter_mut().find_map(Option::take)
 }
 
 fn parse_block_cases(rows: &[String]) -> Option<(String, &[String])> {
@@ -563,16 +613,6 @@ fn write_plain_math_block(output: &mut String, rows: &[String], tag: Option<&str
     output.push_str("\n$$\n");
 }
 
-fn write_aligned_math_block(
-    output: &mut String,
-    rows: &[String],
-    tag: Option<&str>,
-    row_gap: Option<&str>,
-) {
-    let (rows, _) = auto_align_rows(rows);
-    write_aligned_rows(output, &rows, tag, row_gap);
-}
-
 fn write_aligned_rows(
     output: &mut String,
     rows: &[String],
@@ -584,6 +624,30 @@ fn write_aligned_rows(
     output.push_str("\n\\end{aligned}");
     push_optional_tag(output, tag);
     output.push_str("\n$$\n");
+}
+
+fn write_aligned_rows_with_tags(
+    output: &mut String,
+    rows: &[String],
+    row_tags: &[Option<String>],
+    block_tag: Option<&str>,
+    row_gap: Option<&str>,
+) {
+    let row_tag_count = row_tags.iter().filter(|tag| tag.is_some()).count();
+    if row_tag_count == 0 {
+        write_aligned_rows(output, rows, block_tag, row_gap);
+        return;
+    }
+
+    if row_tag_count == 1 && block_tag.is_none() {
+        let tag = row_tags.iter().find_map(Option::as_deref);
+        write_aligned_rows(output, rows, tag, row_gap);
+        return;
+    }
+
+    for (row, tag) in rows.iter().zip(row_tags) {
+        write_aligned_rows(output, std::slice::from_ref(row), tag.as_deref(), None);
+    }
 }
 
 fn write_system_math_block(
@@ -2088,23 +2152,23 @@ norm(v{a} - v{b})
             r#":::math
 lim[i -> inf] (v{a}_i + v{b}_i)
 = lim[i -> inf] v{a}_i
-  + lim[i -> inf] v{b}_i \qquad\text{(1.5.20)}
+  + lim[i -> inf] v{b}_i #tag 1.5.20
 :::
 
 :::math
 lim[i-> inf] c_i v{a}_i
 = (lim[i-> inf] c_i )
-  ( lim[i-> inf] v{a}_i ) \qquad\text{(1.5.21)}
+  ( lim[i-> inf] v{a}_i ) #tag 1.5.21
 :::
 
 :::math
 lim[i-> inf] (\vec{v{a}_i} dot \vec{v{b}_i} )
 = (lim[i-> inf] \vec{v{a}_i} ) dot
-  ( lim[i-> inf] \vec{v{b}_i} ) \qquad\text{(1.5.22)}
+  ( lim[i-> inf] \vec{v{b}_i} ) #tag 1.5.22
 :::
 
 :::math
-lim[i-> inf] c_i v{a}_i = 0 \qquad\text{(1.5.23)}
+lim[i-> inf] c_i v{a}_i = 0 #tag 1.5.23
 :::"#,
         );
 
@@ -2116,6 +2180,11 @@ lim[i-> inf] c_i v{a}_i = 0 \qquad\text{(1.5.23)}
         assert!(markdown.contains(
             r"lim[i-> inf] (\vec{v{a}_i} dot \vec{v{b}_i} ) = (lim[i-> inf] \vec{v{a}_i} ) dot ( lim[i-> inf] \vec{v{b}_i} )"
         ));
+        assert!(markdown.contains(r"\tag{1.5.20}"));
+        assert!(markdown.contains(r"\tag{1.5.21}"));
+        assert!(markdown.contains(r"\tag{1.5.22}"));
+        assert!(markdown.contains(r"\tag{1.5.23}"));
+        assert!(!markdown.contains(r"\qquad\text"));
         assert!(!markdown.contains(r"\begin{aligned}"));
         assert!(!markdown.contains(r"\\[0.5em]"));
     }
@@ -2204,6 +2273,37 @@ g(x) &= x^3
         assert_eq!(
             markdown,
             "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\[0.5em]\ng(x) &= x^3\n\\end{aligned} \\tag{E.1}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn preprocesses_multiple_aligned_row_tags() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math align
+\nabla dot v{E} &= rho #tag M1
+\nabla dot v{B} &= 0 #tag M2
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\n\\nabla dot v{E} &= rho\n\\end{aligned} \\tag{M1}\n$$\n$$\n\\begin{aligned}\n\\nabla dot v{B} &= 0\n\\end{aligned} \\tag{M2}\n$$\n"
+        );
+    }
+
+    #[test]
+    fn attaches_standalone_row_tags_to_previous_row() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math
+v{E}(v{r}) = \frac{v{F}(v{r})}{q_0}
+= \frac{1}{4 pi eps_0} \frac{q}{r^2} unit{u}
+#tag I-2
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nv{E}(v{r}) &= \\frac{v{F}(v{r})}{q_0} \\\\[0.5em]\n&= \\frac{1}{4 pi eps_0} \\frac{q}{r^2} unit{u}\n\\end{aligned} \\tag{I-2}\n$$\n"
         );
     }
 
