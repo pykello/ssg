@@ -97,12 +97,18 @@ Supported compact forms:
 | `eps`, `del`, `inf` | `\epsilon`, `\delta`, `\infty` |
 | `eps_0`, `del_a`, `inf_n` | `\epsilon_0`, `\delta_a`, `\infty_n` |
 | `in`, `notin` | `\in`, `\notin` |
+| `subset`, `supset`, `subseteq`, `supseteq` | `\subset`, `\supset`, `\subseteq`, `\supseteq` |
+| `union`, `inter` | `\cup`, `\cap` |
 | `alpha`, `beta`, `gamma`, `theta`, `lambda`, `omega`, `Phi`, ... | Greek letters |
 | `=>`, `<=>`, `->`, `!=`, `<=`, `>=`, `...` | implication, equivalence, arrow, not equal, less/greater-or-equal, ellipsis |
 
 Plain square brackets are not expanded after LaTeX commands or line breaks, so
 forms like `\sqrt[n]` and `\\[1em]` are preserved. Mixed interval delimiters
 like `[0, 1)` and `(0, 1]` are also left unchanged.
+
+Text-like LaTeX commands such as `\text{...}`, `\mathrm{...}`, and
+`\operatorname{...}` are preserved literally, so ordinary words inside them are
+not treated as shorthand.
 
 ## Block Forms
 

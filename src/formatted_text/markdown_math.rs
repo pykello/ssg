@@ -24,9 +24,15 @@ const WRAPPED_FUNCTIONS: &[WrappedFunction] = &[
 ];
 
 const WORD_REPLACEMENTS: &[Replacement] = &[
+    ("subseteq", r"\subseteq"),
+    ("supseteq", r"\supseteq"),
     ("forall", r"\forall"),
     ("exists", r"\exists"),
     ("notin", r"\notin"),
+    ("subset", r"\subset"),
+    ("supset", r"\supset"),
+    ("union", r"\cup"),
+    ("inter", r"\cap"),
     ("in", r"\in"),
     ("dot", r"\cdot"),
     ("cross", r"\times"),
@@ -58,6 +64,16 @@ const GREEK_REPLACEMENTS: &[Replacement] = &[
 
 const SYMBOL_PREFIX_REPLACEMENTS: &[Replacement] =
     &[("eps", r"\epsilon"), ("del", r"\delta"), ("inf", r"\infty")];
+
+const PROTECTED_LATEX_TEXT_COMMANDS: &[&str] = &[
+    "text",
+    "textrm",
+    "textit",
+    "textbf",
+    "mathrm",
+    "operatorname",
+    "mbox",
+];
 
 const RELATION_TOKENS: &[&str] = &["<=>", "=>", "->", "!=", "<=", ">=", "=", "<", ">"];
 
@@ -447,16 +463,18 @@ fn write_aligned_math_block(output: &mut String, rows: &[String], tag: Option<&s
 fn write_aligned_rows(output: &mut String, rows: &[String], tag: Option<&str>) {
     output.push_str("$$\n\\begin{aligned}\n");
     output.push_str(&join_math_rows(rows));
+    output.push_str("\n\\end{aligned}");
     push_optional_tag(output, tag);
-    output.push_str("\n\\end{aligned}\n$$\n");
+    output.push_str("\n$$\n");
 }
 
 fn write_system_math_block(output: &mut String, rows: &[String], tag: Option<&str>) {
     let (rows, _) = auto_align_rows(rows);
     output.push_str("$$\n\\left\\{\\begin{aligned}\n");
     output.push_str(&join_math_rows(&rows));
+    output.push_str("\n\\end{aligned}\\right.");
     push_optional_tag(output, tag);
-    output.push_str("\n\\end{aligned}\\right.\n$$\n");
+    output.push_str("\n$$\n");
 }
 
 fn write_matrix_math_block(output: &mut String, rows: &[String], tag: Option<&str>) {
@@ -604,7 +622,8 @@ fn unescape_markdown_operators_in_math(segment: &str) -> String {
 }
 
 fn expand_math_shorthand(segment: &str) -> String {
-    let mut output = segment.to_string();
+    let protected = protect_latex_text_commands(segment);
+    let mut output = protected.markdown.clone();
 
     output = expand_cases(&output);
     output = expand_indexed_operators(&output);
@@ -632,13 +651,64 @@ fn expand_math_shorthand(segment: &str) -> String {
         output = replace_word(&output, from, to);
     }
     for &(from, to) in GREEK_REPLACEMENTS {
-        output = replace_word(&output, from, to);
+        output = replace_symbol_token(&output, from, to);
     }
     for &(from, to) in SYMBOL_PREFIX_REPLACEMENTS {
-        output = replace_symbol_prefix(&output, from, to);
+        output = replace_symbol_token(&output, from, to);
     }
 
-    output
+    protected.restore(&output)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProtectedLiteralSegments {
+    markdown: String,
+    segments: Vec<String>,
+}
+
+impl ProtectedLiteralSegments {
+    fn restore(&self, input: &str) -> String {
+        let mut restored = input.to_string();
+        for (idx, segment) in self.segments.iter().enumerate() {
+            restored = restored.replace(&literal_placeholder(idx), segment);
+        }
+        restored
+    }
+}
+
+fn protect_latex_text_commands(input: &str) -> ProtectedLiteralSegments {
+    let mut markdown = String::with_capacity(input.len());
+    let mut segments = Vec::new();
+    let mut pos = 0;
+
+    while pos < input.len() {
+        if let Some(end) = find_latex_text_command_end(input, pos) {
+            markdown.push_str(&literal_placeholder(segments.len()));
+            segments.push(input[pos..end].to_string());
+            pos = end;
+        } else {
+            copy_current_char(input, &mut markdown, &mut pos);
+        }
+    }
+
+    ProtectedLiteralSegments { markdown, segments }
+}
+
+fn literal_placeholder(index: usize) -> String {
+    format!("SSGMATHLITERAL{index:06}")
+}
+
+fn find_latex_text_command_end(input: &str, pos: usize) -> Option<usize> {
+    for command in PROTECTED_LATEX_TEXT_COMMANDS {
+        let pattern = format!(r"\{command}{{");
+        if input[pos..].starts_with(&pattern) && !is_escaped(input, pos) {
+            let open_pos = pos + pattern.len() - 1;
+            let end = find_matching(input, open_pos, '{', '}')?;
+            return Some(end + 1);
+        }
+    }
+
+    None
 }
 
 fn expand_cases(input: &str) -> String {
@@ -690,7 +760,7 @@ fn expand_indexed_operators(input: &str) -> String {
 
             if let Some((body, next_pos)) = following_paren_content(input, call.next_pos) {
                 output.push(' ');
-                output.push_str(body);
+                output.push_str(&expand_math_shorthand(body));
                 pos = next_pos;
             } else {
                 pos = call.next_pos;
@@ -735,7 +805,7 @@ fn expand_derivatives(input: &str) -> String {
     let output = expand_indexed_derivative(input, "dd", "d");
     let output = expand_indexed_derivative(&output, "pd", r"\partial");
     let output = expand_paren_functions(&output, &["pd2"], |_, content| {
-        let args = split_top_level_char(content, ',');
+        let args = expanded_args(content);
         if args.len() == 3 {
             Some(format!(
                 r"\frac{{\partial^2 {}}}{{\partial {} \partial {}}}",
@@ -753,7 +823,7 @@ fn expand_derivatives(input: &str) -> String {
         &output,
         &["grad", "curl", "div", "hess", "jac"],
         |name, content| {
-            let arg = content.trim();
+            let arg = expand_math_shorthand(content.trim());
             if arg.is_empty() {
                 return None;
             }
@@ -777,7 +847,7 @@ fn expand_norm_variants(input: &str) -> String {
         if let Some(call) = find_function_call(input, pos, "norm[", '[', ']') {
             if let Some((body, next_pos)) = following_paren_content(input, call.next_pos) {
                 output.push_str(r"\left\lVert ");
-                output.push_str(body);
+                output.push_str(&expand_math_shorthand(body));
                 output.push_str(r" \right\rVert_{");
                 output.push_str(&input[call.content_start..call.content_end]);
                 output.push('}');
@@ -797,7 +867,7 @@ fn expand_vector_helpers(input: &str) -> String {
         input,
         &["tuple", "cross", "dist", "dot", "seq", "ip"],
         |name, content| {
-            let args = split_top_level_char(content, ',');
+            let args = expanded_args(content);
             Some(match name {
                 "ip" if args.len() == 2 => {
                     format!(r"\left\langle {}, {} \right\rangle", args[0], args[1])
@@ -828,7 +898,7 @@ fn expand_topology_helpers(input: &str) -> String {
             "cl",
         ],
         |name, content| {
-            let args = split_top_level_char(content, ',');
+            let args = expanded_args(content);
             Some(match name {
                 "img" if args.len() == 2 => format!("{}({})", args[0], args[1]),
                 "pre" if args.len() == 2 => format!("{}^{{-1}}({})", args[0], args[1]),
@@ -855,7 +925,7 @@ fn expand_matrix_helpers(input: &str) -> String {
         |name, content| {
             let rows = split_top_level_char(content, ';')
                 .into_iter()
-                .map(str::to_string)
+                .map(expand_matrix_row)
                 .collect::<Vec<_>>();
             let env = match name {
                 "pmat" => "pmatrix",
@@ -876,7 +946,7 @@ fn expand_form_helpers(input: &str) -> String {
         input,
         &["boundary", "wedge", "chain", "form", "pull", "ext"],
         |name, content| {
-            let args = split_top_level_char(content, ',');
+            let args = expanded_args(content);
             Some(match name {
                 "wedge" if !args.is_empty() => args.join(r" \wedge "),
                 "ext" if args.len() == 1 => format!("d{{{}}}", args[0]),
@@ -888,6 +958,21 @@ fn expand_form_helpers(input: &str) -> String {
             })
         },
     )
+}
+
+fn expanded_args(content: &str) -> Vec<String> {
+    split_top_level_char(content, ',')
+        .into_iter()
+        .map(|arg| expand_math_shorthand(arg.trim()))
+        .collect()
+}
+
+fn expand_matrix_row(row: &str) -> String {
+    split_top_level_char(row, ',')
+        .into_iter()
+        .map(|cell| expand_math_shorthand(cell.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn find_named_bracket_call(
@@ -956,10 +1041,10 @@ fn format_integral_body(content: &str) -> String {
         return String::new();
     }
 
-    let mut output = args[0].trim().to_string();
+    let mut output = expand_math_shorthand(args[0].trim());
     for differential in args.iter().skip(1) {
         output.push_str(r"\,d");
-        output.push_str(differential.trim());
+        output.push_str(&expand_math_shorthand(differential.trim()));
     }
     output
 }
@@ -981,10 +1066,10 @@ fn expand_indexed_derivative(input: &str, name: &str, symbol: &str) -> String {
     while pos < input.len() {
         if let Some(call) = find_function_call(input, pos, &pattern, '[', ']') {
             if let Some((content, next_pos)) = following_paren_content(input, call.next_pos) {
-                let args = split_top_level_char(content, ',');
+                let args = expanded_args(content);
                 if args.len() == 2 {
                     let order = input[call.content_start..call.content_end].trim();
-                    output.push_str(&format_power_derivative(symbol, order, args[0], args[1]));
+                    output.push_str(&format_power_derivative(symbol, order, &args[0], &args[1]));
                     pos = next_pos;
                     continue;
                 }
@@ -1000,14 +1085,11 @@ fn expand_indexed_derivative(input: &str, name: &str, symbol: &str) -> String {
 fn expand_plain_derivative(input: &str, name: &str, symbol: &str) -> String {
     let pattern = [name];
     expand_paren_functions(input, &pattern, |_, content| {
-        let args = split_top_level_char(content, ',');
+        let args = expanded_args(content);
         if args.len() == 2 {
             Some(format!(
                 r"\frac{{{} {}}}{{{} {}}}",
-                symbol,
-                args[0].trim(),
-                symbol,
-                args[1].trim()
+                symbol, args[0], symbol, args[1]
             ))
         } else {
             None
@@ -1367,10 +1449,6 @@ fn replace_word(input: &str, from: &str, to: &str) -> String {
     replace_token(input, from, to, is_identifier_char)
 }
 
-fn replace_symbol_prefix(input: &str, from: &str, to: &str) -> String {
-    replace_token(input, from, to, |ch| ch.is_ascii_alphanumeric())
-}
-
 fn replace_token<F>(input: &str, from: &str, to: &str, disallowed_next: F) -> String
 where
     F: Fn(char) -> bool,
@@ -1402,6 +1480,33 @@ where
             .chars()
             .next()
             .is_some_and(disallowed_next)
+}
+
+fn replace_symbol_token(input: &str, from: &str, to: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut pos = 0;
+
+    while pos < input.len() {
+        if can_replace_symbol_token(input, pos, from) {
+            output.push_str(to);
+            pos += from.len();
+        } else {
+            copy_current_char(input, &mut output, &mut pos);
+        }
+    }
+
+    output
+}
+
+fn can_replace_symbol_token(input: &str, pos: usize, from: &str) -> bool {
+    input[pos..].starts_with(from)
+        && !is_escaped(input, pos)
+        && previous_char(input, pos) != Some('\\')
+        && !previous_char(input, pos).is_some_and(|ch| ch.is_ascii_alphabetic())
+        && !input[pos + from.len()..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric())
 }
 
 fn current_char(input: &str, pos: usize) -> char {
@@ -1579,6 +1684,55 @@ $$"#,
     }
 
     #[test]
+    fn preserves_latex_text_command_contents() {
+        let protected = protect_math(r"$seq(v{x}_n) \text{ converges in } bb{R}^n$", true);
+
+        assert_eq!(
+            protected.segments[0],
+            r"$\{\mathbf{x}_n\}_{n \ge 1} \text{ converges in } \mathbb{R}^n$"
+        );
+    }
+
+    #[test]
+    fn expands_symbol_tokens_with_subscripts_and_coefficients() {
+        let protected = protect_math(
+            r"$lambda_i + U_alpha + 2eps + del_a + inf_n + myeps + epsilon$",
+            true,
+        );
+
+        assert_eq!(
+            protected.segments[0],
+            r"$\lambda_i + U_\alpha + 2\epsilon + \delta_a + \infty_n + myeps + epsilon$"
+        );
+    }
+
+    #[test]
+    fn expands_relation_word_aliases() {
+        let protected = protect_math(
+            r"$A subset B, C supset D, A subseteq B, C supseteq D, A union B, A inter B$",
+            true,
+        );
+
+        assert_eq!(
+            protected.segments[0],
+            r"$A \subset B, C \supset D, A \subseteq B, C \supseteq D, A \cup B, A \cap B$"
+        );
+    }
+
+    #[test]
+    fn expands_nested_topology_helpers() {
+        let protected = protect_math(
+            r"$cl(comp(A)) + comp(interior(comp(A))) + bd(A) = cl(A) inter cl(comp(A))$",
+            true,
+        );
+
+        assert_eq!(
+            protected.segments[0],
+            r"$\overline{{A}^c} + {{{A}^c}^\circ}^c + \partial A = \overline{A} \cap \overline{{A}^c}$"
+        );
+    }
+
+    #[test]
     fn expands_indexed_operator_shorthand() {
         let protected = protect_math(
             r"$sum[i=1..n](a_i) + prod[i=1..n](b_i) + lim[x -> a](f(x)) + sup[x in A](g(x)) + inf[x in A](g(x)) + union[a in A](X_a)$",
@@ -1588,6 +1742,19 @@ $$"#,
         assert_eq!(
             protected.segments[0],
             r"$\sum_{i=1}^{n} a_i + \prod_{i=1}^{n} b_i + \lim_{x \to a} f\left(x\right) + \sup_{x \in A} g\left(x\right) + \inf_{x \in A} g\left(x\right) + \bigcup_{a \in A} X_a$"
+        );
+    }
+
+    #[test]
+    fn expands_indexed_operator_binders_and_bodies() {
+        let protected = protect_math(
+            r"$prod[i=1..n](lambda_i) + union[alpha in I](U_alpha) + inter[n=1..inf](V_n)$",
+            true,
+        );
+
+        assert_eq!(
+            protected.segments[0],
+            r"$\prod_{i=1}^{n} \lambda_i + \bigcup_{\alpha \in I} U_\alpha + \bigcap_{n=1}^{\infty} V_n$"
         );
     }
 
@@ -1715,6 +1882,21 @@ g(x) &= x^3
     }
 
     #[test]
+    fn preprocesses_aligned_math_blocks_with_tags_outside_aligned() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math align tag=E.1
+f(x) &= x^2
+g(x) &= x^3
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "$$\n\\begin{aligned}\nf(x) &= x^2 \\\\\ng(x) &= x^3\n\\end{aligned} \\tag{E.1}\n$$\n"
+        );
+    }
+
+    #[test]
     fn preprocesses_plain_mode_math_blocks() {
         let markdown = preprocess_math_shorthand_blocks(
             r#":::math plain
@@ -1753,7 +1935,7 @@ x - y = 0
 
         assert_eq!(
             markdown,
-            "$$\n\\left\\{\\begin{aligned}\n2x + 3y &= 1 \\\\\nx - y &= 0 \\tag{2.1}\n\\end{aligned}\\right.\n$$\n"
+            "$$\n\\left\\{\\begin{aligned}\n2x + 3y &= 1 \\\\\nx - y &= 0\n\\end{aligned}\\right. \\tag{2.1}\n$$\n"
         );
     }
 
