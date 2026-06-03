@@ -1,5 +1,45 @@
 const PLACEHOLDER_PREFIX: &str = "MATHSEGMENTPLACEHOLDER";
 
+type Replacement = (&'static str, &'static str);
+type WrappedFunction = (&'static str, &'static str, &'static str);
+
+const OPERATOR_REPLACEMENTS: &[Replacement] = &[
+    ("<=>", r"\Leftrightarrow"),
+    ("=>", r"\implies"),
+    ("->", r"\to"),
+    ("!=", r"\ne"),
+    ("<=", r"\le"),
+    (">=", r"\ge"),
+];
+
+const WRAPPED_FUNCTIONS: &[WrappedFunction] = &[
+    ("norm", r"\left\lVert ", r" \right\rVert"),
+    ("abs", r"\left\lvert ", r" \right\rvert"),
+    ("unit", r"\hat{\mathbf{", "}}"),
+    ("v", r"\mathbf{", "}"),
+    ("bb", r"\mathbb{", "}"),
+    ("cal", r"\mathcal{", "}"),
+    ("hat", r"\hat{", "}"),
+];
+
+const WORD_REPLACEMENTS: &[Replacement] = &[("forall", r"\forall"), ("exists", r"\exists")];
+
+const SYMBOL_PREFIX_REPLACEMENTS: &[Replacement] =
+    &[("eps", r"\epsilon"), ("del", r"\delta"), ("inf", r"\infty")];
+
+#[derive(Debug, Clone, Copy)]
+struct FunctionCall {
+    content_start: usize,
+    content_end: usize,
+    next_pos: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ShorthandBlock<'a> {
+    Align,
+    Cases { expr: &'a str },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtectedMath {
     markdown: String,
@@ -135,58 +175,85 @@ pub fn preprocess_math_shorthand_blocks(markdown: &str) -> String {
     while let Some(line) = lines.next() {
         if is_fence_line(line) {
             in_fence = !in_fence;
-            output.push_str(line);
-            output.push('\n');
-        } else if !in_fence && line.trim() == ":::align" {
-            let mut body = Vec::new();
-            for body_line in lines.by_ref() {
-                if is_fence_line(body_line) {
-                    in_fence = !in_fence;
-                }
-                if body_line.trim() == ":::" || body_line.trim() == "::::" {
-                    break;
-                }
-                if !body_line.trim().is_empty() {
-                    body.push(body_line.trim().to_string());
-                }
+            append_markdown_line(&mut output, line);
+        } else if !in_fence {
+            if let Some(block) = parse_shorthand_block(line) {
+                let body = collect_shorthand_block_body(&mut lines, &mut in_fence);
+                write_shorthand_block(&mut output, block, &body);
+            } else {
+                append_markdown_line(&mut output, line);
             }
-            output.push_str("$$\n\\begin{align*}\n");
-            output.push_str(&join_math_rows(&body));
-            output.push_str("\n\\end{align*}\n$$\n");
-        } else if !in_fence && line.trim().starts_with(":::cases ") {
-            let expr = line
-                .trim()
-                .strip_prefix(":::cases ")
-                .expect("checked cases prefix");
-            let mut body = Vec::new();
-            for body_line in lines.by_ref() {
-                if is_fence_line(body_line) {
-                    in_fence = !in_fence;
-                }
-                if body_line.trim() == ":::" || body_line.trim() == "::::" {
-                    break;
-                }
-                if !body_line.trim().is_empty() {
-                    body.push(body_line.trim().to_string());
-                }
-            }
-            output.push_str("$$\n");
-            output.push_str(expr.trim());
-            output.push_str(" = \\begin{cases}\n");
-            output.push_str(&join_case_rows(&body));
-            output.push_str("\n\\end{cases}\n$$\n");
         } else {
-            output.push_str(line);
-            output.push('\n');
+            append_markdown_line(&mut output, line);
         }
     }
 
     output
 }
 
+fn append_markdown_line(output: &mut String, line: &str) {
+    output.push_str(line);
+    output.push('\n');
+}
+
 fn is_fence_line(line: &str) -> bool {
     let line = line.trim_start();
     line.starts_with("```") || line.starts_with("~~~")
+}
+
+fn parse_shorthand_block(line: &str) -> Option<ShorthandBlock<'_>> {
+    let trimmed = line.trim();
+    if trimmed == ":::align" {
+        Some(ShorthandBlock::Align)
+    } else {
+        trimmed
+            .strip_prefix(":::cases ")
+            .map(|expr| ShorthandBlock::Cases { expr: expr.trim() })
+    }
+}
+
+fn collect_shorthand_block_body<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+    in_fence: &mut bool,
+) -> Vec<String> {
+    let mut body = Vec::new();
+
+    for body_line in lines.by_ref() {
+        if is_fence_line(body_line) {
+            *in_fence = !*in_fence;
+        }
+
+        let trimmed = body_line.trim();
+        if is_shorthand_block_close(trimmed) {
+            break;
+        }
+        if !trimmed.is_empty() {
+            body.push(trimmed.to_string());
+        }
+    }
+
+    body
+}
+
+fn is_shorthand_block_close(trimmed_line: &str) -> bool {
+    trimmed_line == ":::" || trimmed_line == "::::"
+}
+
+fn write_shorthand_block(output: &mut String, block: ShorthandBlock<'_>, body: &[String]) {
+    match block {
+        ShorthandBlock::Align => {
+            output.push_str("$$\n\\begin{align*}\n");
+            output.push_str(&join_math_rows(body));
+            output.push_str("\n\\end{align*}\n$$\n");
+        }
+        ShorthandBlock::Cases { expr } => {
+            output.push_str("$$\n");
+            output.push_str(expr);
+            output.push_str(" = \\begin{cases}\n");
+            output.push_str(&join_case_rows(body));
+            output.push_str("\n\\end{cases}\n$$\n");
+        }
+    }
 }
 
 fn join_math_rows(rows: &[String]) -> String {
@@ -272,37 +339,22 @@ fn unescape_markdown_operators_in_math(segment: &str) -> String {
 fn expand_math_shorthand(segment: &str) -> String {
     let mut output = segment.to_string();
 
-    for (from, to) in [
-        ("<=>", r"\Leftrightarrow"),
-        ("=>", r"\implies"),
-        ("->", r"\to"),
-        ("!=", r"\ne"),
-        ("<=", r"\le"),
-        (">=", r"\ge"),
-    ] {
+    for &(from, to) in OPERATOR_REPLACEMENTS {
         output = output.replace(from, to);
     }
 
-    for (name, open, close) in [
-        ("norm", r"\left\lVert ", r" \right\rVert"),
-        ("abs", r"\left\lvert ", r" \right\rvert"),
-        ("unit", r"\hat{\mathbf{", "}}"),
-        ("v", r"\mathbf{", "}"),
-        ("bb", r"\mathbb{", "}"),
-        ("cal", r"\mathcal{", "}"),
-        ("hat", r"\hat{", "}"),
-    ] {
-        output = expand_wrapped_function(&output, name, open, close);
+    for &function in WRAPPED_FUNCTIONS {
+        output = expand_wrapped_function(&output, function);
     }
 
     output = expand_set(&output);
     output = expand_lim(&output);
     output = expand_plain_delimiters(&output);
 
-    for (from, to) in [("forall", r"\forall"), ("exists", r"\exists")] {
+    for &(from, to) in WORD_REPLACEMENTS {
         output = replace_word(&output, from, to);
     }
-    for (from, to) in [("eps", r"\epsilon"), ("del", r"\delta"), ("inf", r"\infty")] {
+    for &(from, to) in SYMBOL_PREFIX_REPLACEMENTS {
         output = replace_symbol_prefix(&output, from, to);
     }
 
@@ -316,28 +368,20 @@ fn expand_set(input: &str) -> String {
     let paren_pattern = "set(";
 
     while pos < input.len() {
-        let rest = &input[pos..];
-        if starts_identifier_function(input, pos, brace_pattern) {
-            if let Some(end) = find_matching(input, pos + brace_pattern.len() - 1, '{', '}') {
-                output.push_str(r"\left\{");
-                output.push_str(&format_set_content(&input[pos + brace_pattern.len()..end]));
-                output.push_str(r"\right\}");
-                pos = end + 1;
-                continue;
-            }
-        } else if starts_identifier_function(input, pos, paren_pattern) {
-            if let Some(end) = find_matching(input, pos + paren_pattern.len() - 1, '(', ')') {
-                output.push_str(r"\left\{");
-                output.push_str(&format_set_content(&input[pos + paren_pattern.len()..end]));
-                output.push_str(r"\right\}");
-                pos = end + 1;
-                continue;
-            }
+        let call = find_function_call(input, pos, brace_pattern, '{', '}')
+            .or_else(|| find_function_call(input, pos, paren_pattern, '(', ')'));
+
+        if let Some(call) = call {
+            output.push_str(r"\left\{");
+            output.push_str(&format_set_content(
+                &input[call.content_start..call.content_end],
+            ));
+            output.push_str(r"\right\}");
+            pos = call.next_pos;
+            continue;
         }
 
-        let ch = rest.chars().next().expect("pos is on a char boundary");
-        output.push(ch);
-        pos += ch.len_utf8();
+        copy_current_char(input, &mut output, &mut pos);
     }
 
     output
@@ -385,42 +429,52 @@ fn expand_plain_delimiters(input: &str) -> String {
     let mut bracket_depth = 0;
 
     while pos < input.len() {
-        let ch = input[pos..]
-            .chars()
-            .next()
-            .expect("pos is on a char boundary");
-        if ch == '(' && !is_escaped(input, pos) && !output.trim_end().ends_with(r"\left") {
-            output.push_str(r"\left(");
-            paren_depth += 1;
-        } else if ch == ')' && !is_escaped(input, pos) && !output.trim_end().ends_with(r"\right") {
-            if paren_depth > 0 {
-                output.push_str(r"\right)");
-                paren_depth -= 1;
-            } else {
-                output.push(ch);
+        let ch = current_char(input, pos);
+        match ch {
+            '(' if should_expand_open_paren(input, pos, &output) => {
+                output.push_str(r"\left(");
+                paren_depth += 1;
             }
-        } else if ch == '['
-            && !is_escaped(input, pos)
-            && !output.trim_end().ends_with(r"\left")
-            && !output.trim_end().ends_with(r"\\")
-            && !previous_output_token_is_latex_command(&output)
-        {
-            output.push_str(r"\left[");
-            bracket_depth += 1;
-        } else if ch == ']' && !is_escaped(input, pos) && !output.trim_end().ends_with(r"\right") {
-            if bracket_depth > 0 {
-                output.push_str(r"\right]");
-                bracket_depth -= 1;
-            } else {
-                output.push(ch);
+            ')' if should_expand_close_delimiter(input, pos, &output) => {
+                if paren_depth > 0 {
+                    output.push_str(r"\right)");
+                    paren_depth -= 1;
+                } else {
+                    output.push(ch);
+                }
             }
-        } else {
-            output.push(ch);
+            '[' if should_expand_open_bracket(input, pos, &output) => {
+                output.push_str(r"\left[");
+                bracket_depth += 1;
+            }
+            ']' if should_expand_close_delimiter(input, pos, &output) => {
+                if bracket_depth > 0 {
+                    output.push_str(r"\right]");
+                    bracket_depth -= 1;
+                } else {
+                    output.push(ch);
+                }
+            }
+            _ => output.push(ch),
         }
         pos += ch.len_utf8();
     }
 
     output
+}
+
+fn should_expand_open_paren(input: &str, pos: usize, output: &str) -> bool {
+    !is_escaped(input, pos) && !output.trim_end().ends_with(r"\left")
+}
+
+fn should_expand_close_delimiter(input: &str, pos: usize, output: &str) -> bool {
+    !is_escaped(input, pos) && !output.trim_end().ends_with(r"\right")
+}
+
+fn should_expand_open_bracket(input: &str, pos: usize, output: &str) -> bool {
+    should_expand_open_paren(input, pos, output)
+        && !output.trim_end().ends_with(r"\\")
+        && !previous_output_token_is_latex_command(output)
 }
 
 fn previous_output_token_is_latex_command(output: &str) -> bool {
@@ -439,35 +493,26 @@ fn previous_output_token_is_latex_command(output: &str) -> bool {
     trimmed[..trimmed.len() - command_len].ends_with('\\')
 }
 
-fn expand_wrapped_function(input: &str, name: &str, open: &str, close: &str) -> String {
+fn expand_wrapped_function(input: &str, function: WrappedFunction) -> String {
     let mut output = String::with_capacity(input.len());
     let mut pos = 0;
+    let (name, open, close) = function;
     let brace_pattern = format!("{name}{{");
     let paren_pattern = format!("{name}(");
 
     while pos < input.len() {
-        let rest = &input[pos..];
-        if starts_identifier_function(input, pos, &brace_pattern) {
-            if let Some(end) = find_matching(input, pos + brace_pattern.len() - 1, '{', '}') {
-                output.push_str(open);
-                output.push_str(&input[pos + brace_pattern.len()..end]);
-                output.push_str(close);
-                pos = end + 1;
-                continue;
-            }
-        } else if starts_identifier_function(input, pos, &paren_pattern) {
-            if let Some(end) = find_matching(input, pos + paren_pattern.len() - 1, '(', ')') {
-                output.push_str(open);
-                output.push_str(&input[pos + paren_pattern.len()..end]);
-                output.push_str(close);
-                pos = end + 1;
-                continue;
-            }
+        let call = find_function_call(input, pos, &brace_pattern, '{', '}')
+            .or_else(|| find_function_call(input, pos, &paren_pattern, '(', ')'));
+
+        if let Some(call) = call {
+            output.push_str(open);
+            output.push_str(&input[call.content_start..call.content_end]);
+            output.push_str(close);
+            pos = call.next_pos;
+            continue;
         }
 
-        let ch = rest.chars().next().expect("pos is on a char boundary");
-        output.push(ch);
-        pos += ch.len_utf8();
+        copy_current_char(input, &mut output, &mut pos);
     }
 
     output
@@ -479,25 +524,38 @@ fn expand_lim(input: &str) -> String {
     let pattern = "lim[";
 
     while pos < input.len() {
-        if starts_identifier_function(input, pos, pattern) {
-            if let Some(end) = find_matching(input, pos + pattern.len() - 1, '[', ']') {
-                output.push_str(r"\lim_{");
-                output.push_str(&input[pos + pattern.len()..end]);
-                output.push('}');
-                pos = end + 1;
-                continue;
-            }
+        if let Some(call) = find_function_call(input, pos, pattern, '[', ']') {
+            output.push_str(r"\lim_{");
+            output.push_str(&input[call.content_start..call.content_end]);
+            output.push('}');
+            pos = call.next_pos;
+            continue;
         }
 
-        let ch = input[pos..]
-            .chars()
-            .next()
-            .expect("pos is on a char boundary");
-        output.push(ch);
-        pos += ch.len_utf8();
+        copy_current_char(input, &mut output, &mut pos);
     }
 
     output
+}
+
+fn find_function_call(
+    input: &str,
+    pos: usize,
+    pattern: &str,
+    open: char,
+    close: char,
+) -> Option<FunctionCall> {
+    if !starts_identifier_function(input, pos, pattern) {
+        return None;
+    }
+
+    let open_pos = pos + pattern.len() - 1;
+    let end = find_matching(input, open_pos, open, close)?;
+    Some(FunctionCall {
+        content_start: pos + pattern.len(),
+        content_end: end,
+        next_pos: end + 1,
+    })
 }
 
 fn starts_identifier_function(input: &str, pos: usize, pattern: &str) -> bool {
@@ -542,59 +600,56 @@ fn find_matching(input: &str, open_pos: usize, open: char, close: char) -> Optio
 }
 
 fn replace_word(input: &str, from: &str, to: &str) -> String {
+    replace_token(input, from, to, is_identifier_char)
+}
+
+fn replace_symbol_prefix(input: &str, from: &str, to: &str) -> String {
+    replace_token(input, from, to, |ch| ch.is_ascii_alphanumeric())
+}
+
+fn replace_token<F>(input: &str, from: &str, to: &str, disallowed_next: F) -> String
+where
+    F: Fn(char) -> bool,
+{
     let mut output = String::with_capacity(input.len());
     let mut pos = 0;
 
     while pos < input.len() {
-        if input[pos..].starts_with(from)
-            && !is_escaped(input, pos)
-            && !previous_char(input, pos).is_some_and(is_identifier_char)
-            && !input[pos + from.len()..]
-                .chars()
-                .next()
-                .is_some_and(is_identifier_char)
-        {
+        if can_replace_token(input, pos, from, &disallowed_next) {
             output.push_str(to);
             pos += from.len();
         } else {
-            let ch = input[pos..]
-                .chars()
-                .next()
-                .expect("pos is on a char boundary");
-            output.push(ch);
-            pos += ch.len_utf8();
+            copy_current_char(input, &mut output, &mut pos);
         }
     }
 
     output
 }
 
-fn replace_symbol_prefix(input: &str, from: &str, to: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut pos = 0;
+fn can_replace_token<F>(input: &str, pos: usize, from: &str, disallowed_next: &F) -> bool
+where
+    F: Fn(char) -> bool,
+{
+    input[pos..].starts_with(from)
+        && !is_escaped(input, pos)
+        && !previous_char(input, pos).is_some_and(is_identifier_char)
+        && !input[pos + from.len()..]
+            .chars()
+            .next()
+            .is_some_and(disallowed_next)
+}
 
-    while pos < input.len() {
-        if input[pos..].starts_with(from)
-            && !is_escaped(input, pos)
-            && !previous_char(input, pos).is_some_and(is_identifier_char)
-            && !input[pos + from.len()..]
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_ascii_alphanumeric())
-        {
-            output.push_str(to);
-            pos += from.len();
-        } else {
-            let ch = input[pos..]
-                .chars()
-                .next()
-                .expect("pos is on a char boundary");
-            output.push(ch);
-            pos += ch.len_utf8();
-        }
-    }
+fn current_char(input: &str, pos: usize) -> char {
+    input[pos..]
+        .chars()
+        .next()
+        .expect("pos is on a char boundary")
+}
 
-    output
+fn copy_current_char(input: &str, output: &mut String, pos: &mut usize) {
+    let ch = current_char(input, *pos);
+    output.push(ch);
+    *pos += ch.len_utf8();
 }
 
 #[cfg(test)]
