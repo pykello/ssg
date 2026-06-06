@@ -46,14 +46,14 @@ fn load_directory_content(path: &Path, config: &Config) -> Result<Content, Box<d
     let metadata = ContentMetadata::load(path, config)?;
 
     match metadata.kind {
-        ContentKind::Problem => super::problem::load_problem(path, metadata),
+        ContentKind::Problem => super::problem::load_problem(path, metadata, config),
         ContentKind::Blog => {
-            load_single_content_file(path, metadata, BODY_BASENAME, |metadata, body| {
+            load_single_content_file(path, metadata, BODY_BASENAME, config, |metadata, body| {
                 Content::Blog { metadata, body }
             })
         }
         ContentKind::Page => {
-            load_single_content_file(path, metadata, BODY_BASENAME, |metadata, body| {
+            load_single_content_file(path, metadata, BODY_BASENAME, config, |metadata, body| {
                 Content::Page { metadata, body }
             })
         }
@@ -94,6 +94,11 @@ pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn
     }
 
     Ok(out)
+}
+
+pub(super) fn load_markdown_file(path: &Path, config: &Config) -> Result<String, Box<dyn Error>> {
+    let markdown = load_markdown_with_includes(path)?;
+    crate::formatted_text::preprocess_geomdsl_blocks(&markdown, path, config)
 }
 
 fn load_include_for_line(
@@ -143,7 +148,7 @@ fn parse_include_directive(line: &str) -> Option<&str> {
 
 fn load_bare_page(path: &Path, config: &Config) -> Result<Content, Box<dyn Error>> {
     let mut metadata = bare_page_metadata(path, config)?;
-    let body = load_bare_page_body(path, &mut metadata)?;
+    let body = load_bare_page_body(path, &mut metadata, config)?;
 
     Ok(Content::Page { metadata, body })
 }
@@ -160,10 +165,11 @@ fn bare_page_metadata(path: &Path, config: &Config) -> Result<ContentMetadata, B
 fn load_bare_page_body(
     path: &Path,
     metadata: &mut ContentMetadata,
+    config: &Config,
 ) -> Result<FormattedText, Box<dyn Error>> {
     match path.extension().and_then(|s| s.to_str()) {
         Some("md") => {
-            let text = load_markdown_with_includes(path)?;
+            let text = load_markdown_file(path, config)?;
             if let Some(title) = first_markdown_heading(&text) {
                 metadata.title = title;
             }
@@ -200,25 +206,27 @@ fn load_single_content_file<F>(
     base_path: &Path,
     metadata: ContentMetadata,
     file_basename: &str,
+    config: &Config,
     constructor: F,
 ) -> Result<Content, Box<dyn Error>>
 where
     F: FnOnce(ContentMetadata, FormattedText) -> Content,
 {
-    let content = load_named_content_file(base_path, file_basename)?;
+    let content = load_named_content_file(base_path, file_basename, config)?;
     Ok(constructor(metadata, content))
 }
 
 fn load_named_content_file(
     base_path: &Path,
     file_basename: &str,
+    config: &Config,
 ) -> Result<FormattedText, Box<dyn Error>> {
     let md_file = base_path.join(format!("{}.md", file_basename));
     let tex_file = base_path.join(format!("{}.tex", file_basename));
     let html_file = base_path.join(format!("{}.html", file_basename));
 
     if md_file.exists() {
-        let text = load_markdown_with_includes(&md_file)?;
+        let text = load_markdown_file(&md_file, config)?;
         Ok(FormattedText::Markdown(text))
     } else if tex_file.exists() {
         let text = std::fs::read_to_string(tex_file)?;

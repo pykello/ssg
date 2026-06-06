@@ -113,6 +113,33 @@ HTML used by the notes. Add `class=...` when a JavaScript library expects one:
 :::
 ```
 
+## GeomDSL Figures
+
+Use `:::geomdsl` to render a GeomDSL diagram into a generated image:
+
+```markdown
+:::geomdsl width=620 alt="Perpendicular bisector"
+scene(min=(-2,-2), max=(2,2), grid=false, axes=false)
+
+include "diagram-styles.geom"
+
+A = pt(-1, 0)
+B = pt(1, 0)
+draw LineSegment(A, B)
+draw marker(A)
+draw marker(B)
+:::
+```
+
+The block is rendered through `geomdsl` from `~/projects/geomdsl2` by default.
+Set `geomdsl_dir`, `geomdsl_python`, `geomdsl_timeout_seconds`, or
+`geomdsl_dpi` in the site config to override the runner. GeomDSL `include`
+paths are resolved relative to the Markdown file that contains the block.
+
+The opening line accepts `format=svg` or `format=png`, `dpi=...`, `width=...`,
+`alt="..."`, `caption="..."`, `class=...`, and `id=...`. Generated assets are
+written under `build/static/assets/<content path>/.geomdsl/`.
+
 ## LaTeX Environments
 
 Configured theorem-like LaTeX environments are converted during LaTeX rendering:

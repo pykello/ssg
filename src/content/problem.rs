@@ -13,10 +13,11 @@ const HINT_FILE_BASENAME: &str = "hint";
 pub fn load_problem(
     base_path: &Path,
     metadata: ContentMetadata,
+    config: &crate::config::Config,
 ) -> Result<Content, Box<dyn Error>> {
-    let problem = load_problem_statement(base_path)?;
-    let solutions = load_multiple_files(base_path, SOLUTION_FILE_BASENAME)?;
-    let hints = load_multiple_files(base_path, HINT_FILE_BASENAME)?;
+    let problem = load_problem_statement(base_path, config)?;
+    let solutions = load_multiple_files(base_path, SOLUTION_FILE_BASENAME, config)?;
+    let hints = load_multiple_files(base_path, HINT_FILE_BASENAME, config)?;
 
     Ok(Content::Problem {
         metadata,
@@ -26,10 +27,13 @@ pub fn load_problem(
     })
 }
 
-fn load_problem_statement(base_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
+fn load_problem_statement(
+    base_path: &Path,
+    config: &crate::config::Config,
+) -> Result<FormattedText, Box<dyn Error>> {
     find_formatted_file(base_path, PROBLEM_FILE_BASENAME)
         .ok_or_else(|| "Problem file not found".into())
-        .and_then(|file_path| load_formatted_file(&file_path))
+        .and_then(|file_path| load_formatted_file(&file_path, config))
 }
 
 fn find_formatted_file(base_path: &Path, basename: &str) -> Option<PathBuf> {
@@ -45,10 +49,13 @@ fn find_formatted_file(base_path: &Path, basename: &str) -> Option<PathBuf> {
     }
 }
 
-fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>> {
+fn load_formatted_file(
+    file_path: &Path,
+    config: &crate::config::Config,
+) -> Result<FormattedText, Box<dyn Error>> {
     let content = match file_path.extension().and_then(|s| s.to_str()) {
         Some("md") => {
-            FormattedText::Markdown(super::content::load_markdown_with_includes(file_path)?)
+            FormattedText::Markdown(super::content::load_markdown_file(file_path, config)?)
         }
         Some("tex") => FormattedText::Latex(fs::read_to_string(file_path)?),
         _ => return Err("Unsupported file extension".into()),
@@ -59,13 +66,14 @@ fn load_formatted_file(file_path: &Path) -> Result<FormattedText, Box<dyn Error>
 fn load_multiple_files(
     base_path: &Path,
     basename: &str,
+    config: &crate::config::Config,
 ) -> Result<Vec<FormattedText>, Box<dyn Error>> {
     let mut files = collect_numbered_files(base_path, basename)?;
     files.sort_by_key(|(order, path)| (*order, path.clone()));
 
     let mut result = Vec::new();
     for (_, file_path) in files {
-        result.push(load_formatted_file(&file_path)?);
+        result.push(load_formatted_file(&file_path, config)?);
     }
     Ok(result)
 }
@@ -115,7 +123,8 @@ mod tests {
             ContentMetadata::load(path, &get_test_config()).expect("Failed to load metadata");
 
         // Then load the full problem using that metadata
-        let content = load_problem(path, metadata).expect("Failed to load problem");
+        let content =
+            load_problem(path, metadata, &get_test_config()).expect("Failed to load problem");
 
         // Check the content type
         assert!(matches!(content, Content::Problem { .. }));
@@ -183,7 +192,7 @@ type: "problem"
         let metadata = ContentMetadata::load(temp_path, &config).expect("Failed to load metadata");
 
         // Try to load problem - should fail because there's no problem file
-        let result = load_problem(temp_path, metadata);
+        let result = load_problem(temp_path, metadata, &config);
         assert!(result.is_err());
 
         // Verify the error message mentions the missing problem file
@@ -213,8 +222,9 @@ type: "problem"
             .expect("Failed to write not-a-solution.md");
 
         // Load solution files
+        let config = Config::default();
         let solutions =
-            load_multiple_files(temp_path, "solution").expect("Failed to load solutions");
+            load_multiple_files(temp_path, "solution", &config).expect("Failed to load solutions");
 
         // Check we have the right number of solutions
         assert_eq!(solutions.len(), 4);

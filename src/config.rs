@@ -36,6 +36,14 @@ fn default_pandoc_timeout_seconds() -> u64 {
     10
 }
 
+fn default_geomdsl_python() -> String {
+    "python3".to_string()
+}
+
+fn default_geomdsl_timeout_seconds() -> u64 {
+    15
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     pub build_dir: PathBuf,
@@ -65,6 +73,17 @@ pub struct Config {
 
     #[serde(default = "default_pandoc_timeout_seconds")]
     pub pandoc_timeout_seconds: u64,
+
+    pub geomdsl_dir: Option<PathBuf>,
+
+    #[serde(default = "default_geomdsl_python")]
+    pub geomdsl_python: String,
+
+    #[serde(default = "default_geomdsl_timeout_seconds")]
+    pub geomdsl_timeout_seconds: u64,
+
+    #[serde(default)]
+    pub geomdsl_dpi: Option<u32>,
 }
 
 impl Default for Config {
@@ -82,6 +101,10 @@ impl Default for Config {
             escape_markdown_in_math: default_escape_markdown_in_math(),
             math_shorthand: default_math_shorthand(),
             pandoc_timeout_seconds: default_pandoc_timeout_seconds(),
+            geomdsl_dir: None,
+            geomdsl_python: default_geomdsl_python(),
+            geomdsl_timeout_seconds: default_geomdsl_timeout_seconds(),
+            geomdsl_dpi: None,
         }
     }
 }
@@ -108,6 +131,9 @@ mod tests {
         assert!(config.escape_markdown_in_math);
         assert!(!config.math_shorthand);
         assert_eq!(config.pandoc_timeout_seconds, 10);
+        assert_eq!(config.geomdsl_python, "python3");
+        assert_eq!(config.geomdsl_timeout_seconds, 15);
+        assert_eq!(config.geomdsl_dpi, None);
     }
 
     #[test]
