@@ -140,6 +140,40 @@ The opening line accepts `format=svg` or `format=png`, `dpi=...`, `width=...`,
 `alt="..."`, `caption="..."`, `class=...`, and `id=...`. Generated assets are
 written under `build/static/assets/<content path>/.geomdsl/`.
 
+## Learning Progress
+
+Use `:::learning-item` blocks for exercises or theorems whose completion should
+be tracked:
+
+```markdown
+:::learning-item type=exercise id="analysis-i-sheet-01-exercise-1" section="Sheet 1" status=todo title="Exercise 1"
+Prove the statement.
+:::
+```
+
+Supported statuses are `todo`, `partial`, and `done`. Status aliases such as
+`solved`, `complete`, and `completed` are normalized to `done`; `started` and
+`in-progress` are normalized to `partial`. Unknown statuses are treated as
+`todo`.
+
+The optional `id` is emitted as the HTML `id`, so it can be used as a stable
+anchor. The optional `title` controls the label shown in the item header. The
+`section` value is used by progress summaries to group work across pages.
+
+Use `:::learning-progress` on a tracker page to summarize tracked items in a
+relative directory:
+
+```markdown
+:::learning-progress root="sheets" title="Analysis I Progress"
+:::
+```
+
+The `root` path must be relative to the tracker page and is scanned
+recursively for Markdown files. The tracker groups counts by source page and
+section, and reports `Done`, `Partial`, `Todo`, and overall progress. If all
+tracked items have no theorems, the `Theorems` column is omitted; likewise, an
+all-zero `Exercises` column is omitted.
+
 ## LaTeX Environments
 
 Configured theorem-like LaTeX environments are converted during LaTeX rendering:

@@ -63,7 +63,9 @@ Supported compact forms:
 | `cases(x | x >= 0; -x | x < 0)` | `\begin{cases}x & x \ge 0 \\ -x & x < 0\end{cases}` |
 | `lim[x -> 0]` | `\lim_{x \to 0}` |
 | `lim[x -> 0](f(x))` | `\lim_{x \to 0} f(x)` |
+| `sum(a_i)` | `\sum a_i` |
 | `sum[i=1..n](a_i)` | `\sum_{i=1}^{n} a_i` |
+| `prod(a_i)` | `\prod a_i` |
 | `prod[i=1..n](a_i)` | `\prod_{i=1}^{n} a_i` |
 | `sup[x in A](f(x))` | `\sup_{x \in A} f(x)` |
 | `inf[x in A](f(x))` | `\inf_{x \in A} f(x)` |

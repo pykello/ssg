@@ -6,5 +6,5 @@ mod metadata;
 mod problem;
 pub mod test;
 
-pub use content::Content;
+pub use content::{content_url, Content};
 pub use metadata::{ContentKind, ContentMetadata};

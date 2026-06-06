@@ -98,7 +98,8 @@ pub(super) fn load_markdown_with_includes(path: &Path) -> Result<String, Box<dyn
 
 pub(super) fn load_markdown_file(path: &Path, config: &Config) -> Result<String, Box<dyn Error>> {
     let markdown = load_markdown_with_includes(path)?;
-    crate::formatted_text::preprocess_geomdsl_blocks(&markdown, path, config)
+    let markdown = crate::formatted_text::preprocess_geomdsl_blocks(&markdown, path, config)?;
+    crate::formatted_text::preprocess_learning_blocks(&markdown, path, config)
 }
 
 fn load_include_for_line(

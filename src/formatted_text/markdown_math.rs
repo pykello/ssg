@@ -91,6 +91,8 @@ const INDEXED_OPERATORS: &[(&str, &str)] = &[
     ("inter", r"\bigcap"),
 ];
 
+const UNINDEXED_OPERATORS: &[(&str, &str)] = &[("sum", r"\sum"), ("prod", r"\prod")];
+
 const INTEGRAL_OPERATORS: &[(&str, &str)] = &[
     ("iiint", r"\iiint"),
     ("iint", r"\iint"),
@@ -867,6 +869,7 @@ fn expand_math_shorthand(segment: &str) -> String {
 
     output = expand_cases(&output);
     output = expand_indexed_operators(&output);
+    output = expand_unindexed_operators(&output);
     output = expand_integrals(&output);
     output = expand_derivatives(&output);
     output = expand_norm_variants(&output);
@@ -1012,6 +1015,19 @@ fn expand_indexed_operators(input: &str) -> String {
     }
 
     output
+}
+
+fn expand_unindexed_operators(input: &str) -> String {
+    expand_paren_functions(input, &["sum", "prod"], |name, content| {
+        let latex = UNINDEXED_OPERATORS
+            .iter()
+            .find_map(|(operator, latex)| (*operator == name).then_some(*latex))?;
+        Some(format!(
+            "{} {}",
+            latex,
+            expand_math_shorthand(content.trim())
+        ))
+    })
 }
 
 fn expand_integrals(input: &str) -> String {
@@ -2016,6 +2032,13 @@ $$"#,
             protected.segments[0],
             r"$\sum_{i=1}^{n} a_i + \prod_{i=1}^{n} b_i + \lim_{x \to a} f\left(x\right) + \sup_{x \in A} g\left(x\right) + \inf_{x \in A} g\left(x\right) + \bigcup_{a \in A} X_a$"
         );
+    }
+
+    #[test]
+    fn expands_unindexed_operator_shorthand() {
+        let protected = protect_math(r"$sum(a_k) + prod(lambda_i)$", true);
+
+        assert_eq!(protected.segments[0], r"$\sum a_k + \prod \lambda_i$");
     }
 
     #[test]
