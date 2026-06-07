@@ -31,11 +31,24 @@ struct LearningProgressConfig {
 
 #[derive(Debug, Default)]
 struct ProgressCounts {
-    theorems: usize,
-    exercises: usize,
+    kinds: BTreeMap<String, usize>,
     done: usize,
     partial: usize,
     todo: usize,
+}
+
+impl ProgressCounts {
+    fn increment_kind(&mut self, kind: &str) {
+        *self.kinds.entry(kind.to_string()).or_insert(0) += 1;
+    }
+
+    fn kind_count(&self, kind: &str) -> usize {
+        self.kinds.get(kind).copied().unwrap_or(0)
+    }
+
+    fn total(&self) -> usize {
+        self.kinds.values().sum()
+    }
 }
 
 pub fn preprocess_learning_blocks(
@@ -127,17 +140,8 @@ fn render_learning_progress(
     for item in items {
         let key = (item.source_path.clone(), item.section.clone());
         let counts = by_section.entry(key).or_default();
-        match item.kind.as_str() {
-            "theorem" => {
-                counts.theorems += 1;
-                totals.theorems += 1;
-            }
-            "exercise" => {
-                counts.exercises += 1;
-                totals.exercises += 1;
-            }
-            _ => {}
-        }
+        counts.increment_kind(&item.kind);
+        totals.increment_kind(&item.kind);
         match item.status.as_str() {
             "done" => {
                 counts.done += 1;
@@ -158,8 +162,7 @@ fn render_learning_progress(
         .title
         .as_deref()
         .unwrap_or("Learning Progress");
-    let show_theorems = totals.theorems > 0;
-    let show_exercises = totals.exercises > 0;
+    let kind_columns = progress_kind_columns(&totals);
     let mut html = String::new();
     html.push_str(&format!(
         r#"<section class="learning-progress">
@@ -168,11 +171,11 @@ fn render_learning_progress(
 <thead><tr><th>Page</th><th>Section</th>"#,
         escape_html(title)
     ));
-    if show_theorems {
-        html.push_str("<th>Theorems</th>");
-    }
-    if show_exercises {
-        html.push_str("<th>Exercises</th>");
+    for kind in &kind_columns {
+        html.push_str(&format!(
+            "<th>{}</th>",
+            escape_html(&plural_kind_label(kind))
+        ));
     }
     html.push_str(
         r#"<th>Done</th><th>Partial</th><th>Todo</th><th>Progress</th></tr></thead>
@@ -188,18 +191,15 @@ fn render_learning_progress(
                 .to_string()
         });
         let url = crate::content::content_url(path, config)?;
-        let total = counts.theorems + counts.exercises;
+        let total = counts.total();
         html.push_str(&format!(
             r#"<tr><td><a href="{url}">{page}</a></td><td>{section}</td>"#,
             url = escape_html_attr(&url),
             page = escape_html(&page_title),
             section = escape_html(section),
         ));
-        if show_theorems {
-            html.push_str(&format!("<td>{}</td>", counts.theorems));
-        }
-        if show_exercises {
-            html.push_str(&format!("<td>{}</td>", counts.exercises));
+        for kind in &kind_columns {
+            html.push_str(&format!("<td>{}</td>", counts.kind_count(kind)));
         }
         html.push_str(&format!(
             r#"<td>{done}</td><td>{partial}</td><td>{todo}</td><td>{progress}</td></tr>
@@ -211,16 +211,13 @@ fn render_learning_progress(
         ));
     }
 
-    let total_items = totals.theorems + totals.exercises;
+    let total_items = totals.total();
     html.push_str(
         r#"</tbody>
 <tfoot><tr><th colspan="2">Total</th>"#,
     );
-    if show_theorems {
-        html.push_str(&format!("<th>{}</th>", totals.theorems));
-    }
-    if show_exercises {
-        html.push_str(&format!("<th>{}</th>", totals.exercises));
+    for kind in &kind_columns {
+        html.push_str(&format!("<th>{}</th>", totals.kind_count(kind)));
     }
     html.push_str(&format!(
         r#"<th>{done}</th><th>{partial}</th><th>{todo}</th><th>{progress}</th></tr></tfoot>
@@ -385,9 +382,11 @@ fn tokenize_header(header: &str) -> Result<Vec<String>, Box<dyn Error>> {
 }
 
 fn normalize_kind(kind: &str) -> String {
-    match kind.trim().to_ascii_lowercase().as_str() {
-        "theorem" | "proof" => "theorem".to_string(),
-        _ => "exercise".to_string(),
+    let normalized = kind.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    match normalized.as_str() {
+        "" => "exercise".to_string(),
+        "proof" => "theorem".to_string(),
+        _ => normalized,
     }
 }
 
@@ -407,12 +406,63 @@ fn progress_label(done: usize, total: usize) -> String {
     }
 }
 
-fn title_case(value: &str) -> String {
-    let mut chars = value.chars();
-    match chars.next() {
-        Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
-        None => String::new(),
+fn progress_kind_columns(totals: &ProgressCounts) -> Vec<String> {
+    let mut columns: Vec<String> = totals
+        .kinds
+        .iter()
+        .filter(|(_, count)| **count > 0)
+        .map(|(kind, _)| kind.clone())
+        .collect();
+    columns.sort_by(|left, right| {
+        kind_order(left)
+            .cmp(&kind_order(right))
+            .then_with(|| left.cmp(right))
+    });
+    columns
+}
+
+fn kind_order(kind: &str) -> usize {
+    match kind {
+        "theorem" => 0,
+        "review_question" => 1,
+        "exercise" => 2,
+        "computer_problem" => 3,
+        _ => 4,
     }
+}
+
+fn plural_kind_label(kind: &str) -> String {
+    let label = title_case(kind);
+    match label.as_str() {
+        "Exercise" => "Exercises".to_string(),
+        "Theorem" => "Theorems".to_string(),
+        "Review Question" => "Review Questions".to_string(),
+        "Computer Problem" => "Computer Problems".to_string(),
+        _ if label.ends_with('y') => format!("{}ies", label.trim_end_matches('y')),
+        _ if label.ends_with('s') => label,
+        _ => format!("{label}s"),
+    }
+}
+
+fn title_case(value: &str) -> String {
+    value
+        .split(|ch: char| ch == '_' || ch == '-' || ch.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    format!(
+                        "{}{}",
+                        first.to_uppercase(),
+                        chars.as_str().to_ascii_lowercase()
+                    )
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn starts_directive(line: &str, directive: &str) -> bool {
@@ -484,6 +534,19 @@ Show that $1+1=2$.
         assert!(output.contains(r#"class="learning-item learning-item--partial""#));
         assert!(output.contains(r#"data-learning-section="Sheet 1""#));
         assert!(output.contains("Show that $1+1=2$."));
+        Ok(())
+    }
+
+    #[test]
+    fn renders_learning_item_with_custom_kind_label() -> Result<(), Box<dyn Error>> {
+        let input = r#":::learning-item type=review_question id=rq-1 section="Review Questions" status=todo title="1.1"
+True or false?
+:::
+"#;
+        let config = Config::default();
+        let output = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
+        assert!(output.contains(r#"data-learning-type="review_question""#));
+        assert!(output.contains("Review Question: 1.1"));
         Ok(())
     }
 
@@ -569,6 +632,50 @@ Statement.
         assert!(!output.contains("<th>Theorems</th>"));
         assert!(output.contains("<th>Exercises</th>"));
         assert!(output.contains("<th>1</th><th>0</th><th>0</th><th>1</th><th>0/1</th>"));
+        Ok(())
+    }
+
+    #[test]
+    fn progress_table_tracks_custom_kind_columns() -> Result<(), Box<dyn Error>> {
+        let temp = TempDir::new()?;
+        let content = temp.path().join("content");
+        let build = temp.path().join("build");
+        let project = content.join("en/learning/demo");
+        let sheets = project.join("sheets");
+        std::fs::create_dir_all(&sheets)?;
+        std::fs::write(
+            sheets.join("sheet-01.md"),
+            r#"# Sheet 1
+
+:::learning-item type=review_question id=rq-1 section="Review Questions" status=done
+Statement.
+:::
+
+:::learning-item type=computer_problem id=cp-1 section="Computer Problems" status=todo
+Statement.
+:::
+"#,
+        )?;
+        let progress = project.join("index.md");
+        std::fs::write(&progress, "# Progress\n")?;
+        let config = Config {
+            content_dir: content,
+            build_dir: build,
+            template_dir: temp.path().join("templates"),
+            ..Default::default()
+        };
+
+        let output = preprocess_learning_blocks(
+            r#":::learning-progress root="sheets" title="Demo Progress"
+:::
+"#,
+            &progress,
+            &config,
+        )?;
+
+        assert!(output.contains("<th>Review Questions</th>"));
+        assert!(output.contains("<th>Computer Problems</th>"));
+        assert!(output.contains("<th>1</th><th>1</th><th>1</th><th>0</th><th>1</th><th>1/2</th>"));
         Ok(())
     }
 }
