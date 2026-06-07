@@ -69,12 +69,12 @@ pub fn preprocess_learning_blocks(
             in_fence = !in_fence;
             append_line(&mut out, line);
         } else if !in_fence && starts_directive(line, ":::learning-item") {
-            let body = take_directive_body(&mut lines);
+            let body = take_directive_body(&mut lines, directive_marker_len(line).unwrap_or(3));
             let item_config =
                 parse_learning_item_config(directive_remainder(line, ":::learning-item"))?;
             write_learning_item(&mut out, &item_config, &body);
         } else if !in_fence && starts_directive(line, ":::learning-progress") {
-            let _body = take_directive_body(&mut lines);
+            let _body = take_directive_body(&mut lines, directive_marker_len(line).unwrap_or(3));
             let progress_config =
                 parse_learning_progress_config(directive_remainder(line, ":::learning-progress"))?;
             out.push_str(&render_learning_progress(
@@ -480,21 +480,67 @@ fn directive_remainder<'a>(line: &'a str, directive: &str) -> &'a str {
         .trim()
 }
 
-fn take_directive_body<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Vec<String> {
+fn take_directive_body<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+    outer_marker_len: usize,
+) -> Vec<String> {
     let mut body = Vec::new();
     let mut in_fence = false;
+    let mut nested_directives: Vec<usize> = Vec::new();
 
     for line in lines {
         if is_code_fence_line(line) {
             in_fence = !in_fence;
         }
-        if !in_fence && line.trim_start().starts_with(":::") {
-            break;
+
+        if !in_fence {
+            match directive_line(line) {
+                Some(DirectiveLine::Open(marker_len)) => {
+                    nested_directives.push(marker_len);
+                }
+                Some(DirectiveLine::Close(marker_len)) => {
+                    if let Some(nested_marker_len) = nested_directives.last().copied() {
+                        if marker_len >= nested_marker_len {
+                            nested_directives.pop();
+                        }
+                    } else if marker_len >= outer_marker_len {
+                        break;
+                    }
+                }
+                None => {}
+            }
         }
         body.push(line.to_string());
     }
 
     body
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectiveLine {
+    Open(usize),
+    Close(usize),
+}
+
+fn directive_line(line: &str) -> Option<DirectiveLine> {
+    let line = line.trim_start();
+    let marker_len = directive_marker_len(line)?;
+    let rest = line[marker_len..].trim();
+
+    if rest.is_empty() {
+        Some(DirectiveLine::Close(marker_len))
+    } else {
+        Some(DirectiveLine::Open(marker_len))
+    }
+}
+
+fn directive_marker_len(line: &str) -> Option<usize> {
+    let marker_len = line
+        .trim_start()
+        .chars()
+        .take_while(|ch| *ch == ':')
+        .count();
+    (marker_len >= 3).then_some(marker_len)
 }
 
 fn is_code_fence_line(line: &str) -> bool {
@@ -521,6 +567,7 @@ fn escape_html_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::formatted_text::FormattedText;
     use tempfile::TempDir;
 
     #[test]
@@ -547,6 +594,69 @@ True or false?
         let output = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
         assert!(output.contains(r#"data-learning-type="review_question""#));
         assert!(output.contains("Review Question: 1.1"));
+        Ok(())
+    }
+
+    #[test]
+    fn preserves_nested_directives_inside_learning_item() -> Result<(), Box<dyn Error>> {
+        let input = r#":::learning-item type=exercise id=ex-1 section="Sheet 1" status=todo title="Problem 1"
+Show the identity.
+
+:::proof[Solution]
+Use this display:
+
+:::math
+v{x} = v{y}
+=> norm(v{x}) <= eps
+:::
+:::
+
+Then finish the argument.
+:::
+
+Outside the item.
+"#;
+        let config = Config::default();
+        let output = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
+        let section_start = output.find("<section").expect("learning item section");
+        let section_end = output.find("</section>").expect("learning item close");
+        let section = &output[section_start..section_end];
+        let outside = output.find("Outside the item.").expect("outside text");
+
+        assert!(section.contains(":::proof[Solution]"));
+        assert!(section.contains(":::math"));
+        assert!(section.contains("Then finish the argument."));
+        assert!(outside > section_end);
+        Ok(())
+    }
+
+    #[test]
+    fn renders_nested_math_and_proof_inside_learning_item() -> Result<(), Box<dyn Error>> {
+        let input = r#":::learning-item type=exercise id=ex-1 section="Sheet 1" status=todo title="Problem 1"
+Show the identity.
+
+:::proof[Solution]
+Use this display:
+
+:::math
+v{x} = v{y}
+=> norm(v{x}) <= eps
+:::
+:::
+:::
+"#;
+        let mut config = Config::default();
+        config.escape_markdown_in_math = false;
+        config.math_shorthand = true;
+        let markdown = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
+        let output = FormattedText::Markdown(markdown).to_html(&config)?;
+
+        assert!(output.contains(r#"class="learning-item learning-item--todo""#));
+        assert!(output.contains(r#"class="collapse""#));
+        assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
+        assert!(output.contains(r"\left\lVert \mathbf{x} \right\rVert \le \epsilon"));
+        assert!(!output.contains(":::math"));
+        assert!(!output.contains(":::proof"));
         Ok(())
     }
 

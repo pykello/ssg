@@ -148,8 +148,15 @@ be tracked:
 ```markdown
 :::learning-item type=exercise id="analysis-i-sheet-01-exercise-1" section="Sheet 1" status=todo title="Exercise 1"
 Prove the statement.
+
+:::proof[Solution]
+
+:::
 :::
 ```
+
+Learning item bodies may contain nested block directives such as `:::proof`
+and `:::math`.
 
 Supported statuses are `todo`, `partial`, and `done`. Status aliases such as
 `solved`, `complete`, and `completed` are normalized to `done`; `started` and
