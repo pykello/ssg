@@ -157,6 +157,13 @@ pub fn protect_math(markdown: &str, expand_shorthand: bool) -> ProtectedMath {
     }
 }
 
+pub fn expand_math_markdown(markdown: &str, default_expand_shorthand: bool) -> String {
+    let expand_shorthand = math_shorthand_enabled(markdown, default_expand_shorthand);
+    let markdown = preprocess_math_blocks(markdown, expand_shorthand);
+    let protected = protect_math(&markdown, expand_shorthand);
+    protected.restore(protected.markdown())
+}
+
 fn placeholder(index: usize) -> String {
     format!("{PLACEHOLDER_PREFIX}{index:06}")
 }
@@ -378,6 +385,38 @@ fn parse_math_shorthand_pragma(line: &str) -> Option<bool> {
         "off" | "false" | "no" => Some(false),
         _ => None,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MathDiagnostic {
+    pub line: usize,
+    pub message: String,
+}
+
+pub fn check_math_markdown(markdown: &str, default_expand_shorthand: bool) -> Vec<MathDiagnostic> {
+    let expanded = expand_math_markdown(markdown, default_expand_shorthand);
+    raw_math_directive_diagnostics(&expanded)
+}
+
+fn raw_math_directive_diagnostics(markdown: &str) -> Vec<MathDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_fence = false;
+
+    for (line_index, line) in markdown.lines().enumerate() {
+        if is_fence_line(line) {
+            in_fence = !in_fence;
+            continue;
+        }
+
+        if !in_fence && line.trim_start().starts_with(":::math") {
+            diagnostics.push(MathDiagnostic {
+                line: line_index + 1,
+                message: "unprocessed or malformed :::math directive".to_string(),
+            });
+        }
+    }
+
+    diagnostics
 }
 
 fn append_markdown_line(output: &mut String, line: &str) {
@@ -2517,6 +2556,34 @@ c = d
             markdown,
             "SSG_RAW_MATH_BLOCK\n$$\n\\gamma + norm(v{x})\n\n\\= \\lt\n$$\n"
         );
+    }
+
+    #[test]
+    fn expands_math_markdown_for_inspection() {
+        let markdown = expand_math_markdown(
+            r#":::math shorthand
+norm(v{x}) <= eps
+:::"#,
+            false,
+        );
+
+        assert!(markdown.contains(r"\left\lVert \mathbf{x} \right\rVert \le \epsilon"));
+        assert!(!markdown.contains(":::math"));
+        assert!(!markdown.contains("SSG_EXPAND_MATH_BLOCK"));
+    }
+
+    #[test]
+    fn check_math_markdown_reports_malformed_math_directives() {
+        let diagnostics = check_math_markdown(
+            r#":::math typo
+x = y
+:::"#,
+            false,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, 1);
+        assert!(diagnostics[0].message.contains("malformed"));
     }
 
     #[test]

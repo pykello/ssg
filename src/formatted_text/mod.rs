@@ -11,3 +11,4 @@ pub use formatted_text::FormattedText;
 pub use formatted_text::Theorem;
 pub use geomdsl::preprocess_geomdsl_blocks;
 pub use learning::preprocess_learning_blocks;
+pub use markdown_math::{check_math_markdown, expand_math_markdown};
