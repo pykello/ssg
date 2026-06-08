@@ -1,7 +1,7 @@
 use clap::{Arg, Command};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use ssg::{config, content::*, render::*};
+use ssg::{config, content::*, render::*, version};
 use std::{
     collections::HashMap,
     fs,
@@ -68,7 +68,7 @@ fn parse_args() -> Result<CliArgs, Box<dyn std::error::Error>> {
 
 fn cli_command() -> Command {
     Command::new("ssg-list")
-        .version("1.0")
+        .version(version::VERSION)
         .author("Hadi Moshayedi")
         .about("Generates list pages from content")
         .arg(

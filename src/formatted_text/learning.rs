@@ -655,6 +655,7 @@ v{x} = v{y}
         assert!(output.contains(r#"class="collapse""#));
         assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
         assert!(output.contains(r"\left\lVert \mathbf{x} \right\rVert \le \epsilon"));
+        assert!(!output.contains(":::learning-item"));
         assert!(!output.contains(":::math"));
         assert!(!output.contains(":::proof"));
         Ok(())

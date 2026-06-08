@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use ssg::{config, content::*, render::*};
+use ssg::{config, content::*, render::*, version};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -43,7 +43,7 @@ fn parse_args() -> Result<CliArgs, Box<dyn std::error::Error>> {
 
 fn cli_command() -> Command {
     Command::new("ssg-content")
-        .version("1.0")
+        .version(version::VERSION)
         .author("Hadi Moshayedi")
         .about("Generates HTML files from definitions")
         .arg(

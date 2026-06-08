@@ -109,6 +109,7 @@ fn apply_latex_postprocessors(
 
 fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     let markdown = preprocess_markdown(markdown, config);
+    reject_unprocessed_directives(&markdown)?;
     let protected_math = protect_markdown_math(&markdown, config);
     let markdown = protected_math
         .as_ref()
@@ -133,6 +134,32 @@ fn preprocess_markdown(markdown: &str, config: &Config) -> String {
     let markdown = preprocess_semantic_cards(&markdown);
     let markdown = preprocess_cards(&markdown);
     preprocess_expandables(&markdown)
+}
+
+fn reject_unprocessed_directives(markdown: &str) -> Result<(), String> {
+    let mut in_fence = false;
+
+    for (line_index, line) in markdown.lines().enumerate() {
+        if is_code_fence_line(line) {
+            in_fence = !in_fence;
+            continue;
+        }
+
+        if !in_fence && line.trim_start().starts_with(":::") {
+            return Err(format!(
+                "Unprocessed Markdown directive at line {}: {}",
+                line_index + 1,
+                line.trim()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_code_fence_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("```") || line.starts_with("~~~")
 }
 
 fn protect_markdown_math(markdown: &str, config: &Config) -> Option<ProtectedMath> {
@@ -507,8 +534,9 @@ v{x} = v{y}
 => norm(v{x}) <= eps
 :::"#;
 
-        let output = markdown_to_html(input, &config).unwrap();
-        assert!(output.contains(":::math"));
+        let error = markdown_to_html(input, &config).unwrap_err();
+        assert!(error.contains("Unprocessed Markdown directive"));
+        assert!(error.contains(":::math"));
 
         config.math_shorthand = true;
         let output = markdown_to_html(input, &config).unwrap();
@@ -517,6 +545,33 @@ v{x} = v{y}
         assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
         assert!(output.contains(r"&\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon"));
         assert!(!output.contains(":::math"));
+    }
+
+    #[test]
+    fn test_unknown_directives_fail_loudly() {
+        let config = get_test_config();
+        let input = r#":::unknown
+Body
+:::"#;
+
+        let error = markdown_to_html(input, &config).unwrap_err();
+
+        assert!(error.contains("Unprocessed Markdown directive at line 1"));
+        assert!(error.contains(":::unknown"));
+    }
+
+    #[test]
+    fn test_directives_inside_code_fences_do_not_fail() {
+        let config = get_test_config();
+        let input = r#"```markdown
+:::unknown
+Body
+:::
+```"#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(":::unknown"));
     }
 
     #[test]
