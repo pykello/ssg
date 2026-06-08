@@ -17,6 +17,53 @@ You can also opt in or out for one Markdown file:
 Shorthand is expanded only inside `$...$`, `$$...$$`, and the shorthand math blocks
 below. Existing LaTeX remains valid.
 
+## Inspecting And Checking
+
+Use `ssg-math-expand` to inspect the transformed Markdown/LaTeX before HTML
+rendering:
+
+```sh
+ssg-math-expand --math-shorthand content/en/notes/page.md
+```
+
+Use check mode to scan a file or tree without rendering pages:
+
+```sh
+ssg-content --check-math content/en/notes
+ssg-content --check-math --strict-math content/en/notes
+```
+
+Check mode reports malformed `:::math` blocks, unmatched math delimiters,
+known shorthand that did not expand, and likely OCR mistakes such as `\lt`,
+`\gt`, `lne`, `tne`, `If(`, `Jf`, and split subscripts like `_ {n}`.
+Without `--strict-math`, shorthand and OCR findings are warnings. With
+`--strict-math`, they are errors.
+
+## Inline Vs Display
+
+Inline shorthand is best for short, local expressions where the source remains
+readable after compression:
+
+```text
+$norm(v{x}) <= eps$
+$x in bb{R}^n$
+$lim[x -> 0](f(x)) = 1$
+```
+
+For longer derivations, systems, matrices, and cases, prefer display blocks.
+They keep the source shape close to the rendered shape and make check-mode
+diagnostics easier to locate:
+
+```text
+:::math align
+norm(v{x} - v{y})
+<= norm(v{x}) + norm(v{y})
+:::
+```
+
+Use raw LaTeX for dense copied formulas, especially from books or OCR. Convert
+only obvious simple notation to shorthand after the formula is already correct.
+
 ## Inline Forms
 
 ```text
@@ -255,3 +302,38 @@ c & d
 \end{bmatrix} \tag{A}
 $$
 ```
+
+## Book Extraction Recommendations
+
+For book and OCR extraction, use raw LaTeX as the first transcription target.
+That keeps copied formulas predictable and avoids accidental shorthand rewrites
+while the text is still being repaired:
+
+```text
+:::math raw
+\frac{\gamma_n}{1-\gamma_n}
+:::
+```
+
+After the formula is correct, optionally convert only obvious authored-note
+patterns to shorthand, such as `v{x}`, `bb{R}`, `norm(x)`, and simple indexed
+operators. Dense textbook expressions with established LaTeX commands such as
+`\gamma`, `\int`, `\frac`, and custom notation should usually stay as raw
+LaTeX.
+
+Recommended extraction workflow:
+
+1. Transcribe formulas into `$...$`, `$$...$$`, or `:::math raw` with minimal
+   editing.
+2. Run `ssg-content --check-math` to find malformed blocks, unmatched
+   delimiters, and likely OCR mistakes.
+3. Use `ssg-math-expand` only after choosing to opt a file or block into
+   shorthand.
+4. Convert small, repeated authored-note patterns to shorthand where it makes
+   the source clearer.
+5. Re-run `ssg-content --check-math --strict-math` before committing generated
+   learning pages.
+
+Shorthand is safest for material authored directly in Markdown. It is less
+safe as an OCR repair tool because many OCR errors look like plausible
+identifiers until the surrounding formula has been checked.
