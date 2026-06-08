@@ -662,6 +662,36 @@ v{x} = v{y}
     }
 
     #[test]
+    fn renders_nested_math_then_proof_inside_learning_item() -> Result<(), Box<dyn Error>> {
+        let input = r#":::learning-item type=exercise id=ex-2 section="Sheet 1" status=todo title="Problem 2"
+Use the estimate.
+
+:::math
+norm(v{x} - v{y}) <= eps
+:::
+
+:::proof[Solution]
+Choose $v{x}$ and $v{y}$ with the required bound.
+:::
+:::
+"#;
+        let mut config = Config::default();
+        config.escape_markdown_in_math = false;
+        config.math_shorthand = true;
+        let markdown = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
+        let output = FormattedText::Markdown(markdown).to_html(&config)?;
+
+        assert!(output.contains(r#"class="learning-item learning-item--todo""#));
+        assert!(output.contains(r"\left\lVert \mathbf{x} - \mathbf{y} \right\rVert"));
+        assert!(output.contains(r#"class="collapse""#));
+        assert!(output.contains("Solution."));
+        assert!(!output.contains(":::learning-item"));
+        assert!(!output.contains(":::math"));
+        assert!(!output.contains(":::proof"));
+        Ok(())
+    }
+
+    #[test]
     fn renders_progress_table_from_relative_root() -> Result<(), Box<dyn Error>> {
         let temp = TempDir::new()?;
         let content = temp.path().join("content");
