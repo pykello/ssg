@@ -21,6 +21,7 @@ struct CliArgs {
     path: PathBuf,
     config_path: Option<PathBuf>,
     check_math: bool,
+    strict_math: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,6 +37,7 @@ fn parse_args() -> Result<CliArgs, Box<dyn std::error::Error>> {
         .ok_or("Missing required 'path' argument")?;
     let config_path = matches.get_one::<PathBuf>("config").cloned();
     let check_math = matches.get_flag("check-math");
+    let strict_math = matches.get_flag("strict-math");
 
     if !check_math && config_path.is_none() {
         return Err("Missing required --config argument".into());
@@ -45,6 +47,7 @@ fn parse_args() -> Result<CliArgs, Box<dyn std::error::Error>> {
         path,
         config_path,
         check_math,
+        strict_math,
     })
 }
 
@@ -57,6 +60,13 @@ fn cli_command() -> Command {
             Arg::new("check-math")
                 .long("check-math")
                 .help("Check Markdown math directives without rendering HTML")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("strict-math")
+                .long("strict-math")
+                .help("Treat math shorthand and OCR warnings as check errors")
+                .requires("check-math")
                 .action(clap::ArgAction::SetTrue),
         )
         .arg(
@@ -78,7 +88,7 @@ fn run(args: CliArgs) -> Result<(), Box<dyn std::error::Error>> {
     if args.check_math {
         let default_math_shorthand = load_optional_config(args.config_path.as_deref())?
             .is_some_and(|config| config.math_shorthand);
-        return check_math_path(&args.path, default_math_shorthand);
+        return check_math_path(&args.path, default_math_shorthand, args.strict_math);
     }
 
     let config_path = args
@@ -110,25 +120,29 @@ fn load_optional_config(
 fn check_math_path(
     path: &Path,
     default_math_shorthand: bool,
+    strict: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let files = markdown_files(path)?;
-    let mut diagnostics_count = 0;
+    let mut error_count = 0;
 
     for file in files {
         let markdown = fs::read_to_string(&file)?;
-        for diagnostic in check_math_markdown(&markdown, default_math_shorthand) {
-            diagnostics_count += 1;
+        for diagnostic in check_math_markdown(&markdown, default_math_shorthand, strict) {
+            if diagnostic.severity.as_str() == "error" {
+                error_count += 1;
+            }
             eprintln!(
-                "{}:{}: {}",
+                "{}:{}: {}: {}",
                 file.display(),
                 diagnostic.line,
+                diagnostic.severity.as_str(),
                 diagnostic.message
             );
         }
     }
 
-    if diagnostics_count > 0 {
-        Err(format!("{diagnostics_count} math check diagnostic(s)").into())
+    if error_count > 0 {
+        Err(format!("{error_count} math check error(s)").into())
     } else {
         Ok(())
     }

@@ -387,36 +387,438 @@ fn parse_math_shorthand_pragma(line: &str) -> Option<bool> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathDiagnosticSeverity {
+    Warning,
+    Error,
+}
+
+impl MathDiagnosticSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MathDiagnostic {
     pub line: usize,
+    pub severity: MathDiagnosticSeverity,
     pub message: String,
 }
 
-pub fn check_math_markdown(markdown: &str, default_expand_shorthand: bool) -> Vec<MathDiagnostic> {
-    let expanded = expand_math_markdown(markdown, default_expand_shorthand);
-    raw_math_directive_diagnostics(&expanded)
+impl MathDiagnostic {
+    fn error(line: usize, message: impl Into<String>) -> Self {
+        Self {
+            line,
+            severity: MathDiagnosticSeverity::Error,
+            message: message.into(),
+        }
+    }
 }
 
-fn raw_math_directive_diagnostics(markdown: &str) -> Vec<MathDiagnostic> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MathSegment {
+    line: usize,
+    text: String,
+    expand_shorthand: bool,
+    raw: bool,
+}
+
+pub fn check_math_markdown(
+    markdown: &str,
+    default_expand_shorthand: bool,
+    strict: bool,
+) -> Vec<MathDiagnostic> {
+    let mut diagnostics = Vec::new();
+    diagnostics.extend(math_block_directive_diagnostics(markdown));
+    diagnostics.extend(unmatched_dollar_diagnostics(markdown));
+
+    let segments = collect_math_segments(markdown, default_expand_shorthand);
+    diagnostics.extend(shorthand_diagnostics(&segments, strict));
+    diagnostics.extend(ocr_diagnostics(&segments, strict));
+    diagnostics
+}
+
+fn math_block_directive_diagnostics(markdown: &str) -> Vec<MathDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_fence = false;
+    let mut lines = markdown.lines().enumerate();
 
-    for (line_index, line) in markdown.lines().enumerate() {
+    while let Some((line_index, line)) = lines.next() {
         if is_fence_line(line) {
             in_fence = !in_fence;
             continue;
         }
 
         if !in_fence && line.trim_start().starts_with(":::math") {
-            diagnostics.push(MathDiagnostic {
-                line: line_index + 1,
-                message: "unprocessed or malformed :::math directive".to_string(),
-            });
+            if parse_math_block(line).is_none() {
+                diagnostics.push(MathDiagnostic::error(
+                    line_index + 1,
+                    "malformed :::math directive",
+                ));
+                continue;
+            }
+
+            let mut closed = false;
+            for (_, body_line) in lines.by_ref() {
+                if is_shorthand_block_close(body_line.trim()) {
+                    closed = true;
+                    break;
+                }
+            }
+            if !closed {
+                diagnostics.push(MathDiagnostic::error(
+                    line_index + 1,
+                    "unterminated :::math block",
+                ));
+            }
         }
     }
 
     diagnostics
+}
+
+fn unmatched_dollar_diagnostics(markdown: &str) -> Vec<MathDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut in_fence = false;
+    let mut inline_open_line: Option<usize> = None;
+    let mut display_open_line: Option<usize> = None;
+
+    for (line_index, line) in markdown.lines().enumerate() {
+        let line_no = line_index + 1;
+        if is_fence_line(line) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+
+        let mut pos = 0;
+        while pos < line.len() {
+            if display_open_line.is_some() {
+                if line[pos..].starts_with("$$") && !is_escaped(line, pos) {
+                    display_open_line = None;
+                    pos += 2;
+                } else {
+                    pos += line[pos..]
+                        .chars()
+                        .next()
+                        .expect("pos is on char boundary")
+                        .len_utf8();
+                }
+            } else if line[pos..].starts_with("$$") && !is_escaped(line, pos) {
+                display_open_line = Some(line_no);
+                pos += 2;
+            } else if line[pos..].starts_with('$') && !is_escaped(line, pos) {
+                if inline_open_line.is_some() {
+                    inline_open_line = None;
+                } else {
+                    inline_open_line = Some(line_no);
+                }
+                pos += 1;
+            } else {
+                pos += line[pos..]
+                    .chars()
+                    .next()
+                    .expect("pos is on char boundary")
+                    .len_utf8();
+            }
+        }
+    }
+
+    if let Some(line) = inline_open_line {
+        diagnostics.push(MathDiagnostic::error(
+            line,
+            "unmatched inline math delimiter `$`",
+        ));
+    }
+    if let Some(line) = display_open_line {
+        diagnostics.push(MathDiagnostic::error(
+            line,
+            "unmatched display math delimiter `$$`",
+        ));
+    }
+
+    diagnostics
+}
+
+fn collect_math_segments(markdown: &str, default_expand_shorthand: bool) -> Vec<MathSegment> {
+    let file_expand_shorthand = math_shorthand_enabled(markdown, default_expand_shorthand);
+    let mut segments = Vec::new();
+    let mut lines = markdown.lines().enumerate();
+    let mut in_fence = false;
+
+    while let Some((line_index, line)) = lines.next() {
+        if is_fence_line(line) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || parse_math_shorthand_pragma(line).is_some() {
+            continue;
+        }
+
+        if let Some(block_config) = parse_math_block(line) {
+            let mut body = Vec::new();
+            for (_, body_line) in lines.by_ref() {
+                if is_shorthand_block_close(body_line.trim()) {
+                    break;
+                }
+                body.push(body_line.to_string());
+            }
+            segments.push(MathSegment {
+                line: line_index + 1,
+                text: body.join("\n"),
+                expand_shorthand: block_config.shorthand.unwrap_or(file_expand_shorthand),
+                raw: block_config.mode == MathBlockMode::Raw,
+            });
+            continue;
+        }
+
+        segments.extend(collect_dollar_segments(
+            line,
+            line_index + 1,
+            file_expand_shorthand,
+        ));
+    }
+
+    segments
+}
+
+fn collect_dollar_segments(line: &str, line_no: usize, expand_shorthand: bool) -> Vec<MathSegment> {
+    let mut segments = Vec::new();
+    let mut pos = 0;
+
+    while pos < line.len() {
+        if line[pos..].starts_with('$') && !is_escaped(line, pos) {
+            let delimiter = if line[pos..].starts_with("$$") {
+                "$$"
+            } else {
+                "$"
+            };
+            let start = pos + delimiter.len();
+            if let Some(end) = find_math_end_in_line(line, delimiter, start) {
+                segments.push(MathSegment {
+                    line: line_no,
+                    text: line[start..end].to_string(),
+                    expand_shorthand,
+                    raw: false,
+                });
+                pos = end + delimiter.len();
+                continue;
+            }
+        }
+
+        pos += line[pos..]
+            .chars()
+            .next()
+            .expect("pos is on char boundary")
+            .len_utf8();
+    }
+
+    segments
+}
+
+fn find_math_end_in_line(line: &str, delimiter: &str, start: usize) -> Option<usize> {
+    let mut pos = start;
+    while pos < line.len() {
+        let relative = line[pos..].find(delimiter)?;
+        let end = pos + relative;
+        if !is_escaped(line, end) {
+            return Some(end);
+        }
+        pos = end + delimiter.len();
+    }
+    None
+}
+
+fn shorthand_diagnostics(segments: &[MathSegment], strict: bool) -> Vec<MathDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let severity = if strict {
+        MathDiagnosticSeverity::Error
+    } else {
+        MathDiagnosticSeverity::Warning
+    };
+
+    for segment in segments {
+        if segment.raw || !segment.expand_shorthand {
+            continue;
+        }
+
+        let expanded = expand_math_shorthand(&segment.text);
+        diagnostics.extend(unexpanded_shorthand_diagnostics(
+            segment.line,
+            &expanded,
+            severity,
+        ));
+        diagnostics.extend(indexed_operator_body_diagnostics(
+            segment.line,
+            &segment.text,
+            severity,
+        ));
+    }
+
+    diagnostics
+}
+
+fn unexpanded_shorthand_diagnostics(
+    line: usize,
+    expanded: &str,
+    severity: MathDiagnosticSeverity,
+) -> Vec<MathDiagnostic> {
+    let shorthand_functions = [
+        "norm",
+        "abs",
+        "v",
+        "bb",
+        "cal",
+        "hat",
+        "cases",
+        "tuple",
+        "dist",
+        "seq",
+        "ip",
+        "dd",
+        "pd",
+        "pd2",
+        "grad",
+        "curl",
+        "div",
+        "hess",
+        "jac",
+        "img",
+        "pre",
+        "comp",
+        "cl",
+        "interior",
+        "bd",
+        "ball",
+        "openball",
+        "closedball",
+        "set",
+    ];
+
+    shorthand_functions
+        .iter()
+        .filter(|name| contains_unescaped_token(expanded, &format!("{name}(")))
+        .map(|name| MathDiagnostic {
+            line,
+            severity,
+            message: format!("possible malformed shorthand `{name}(...)` did not expand"),
+        })
+        .collect()
+}
+
+fn indexed_operator_body_diagnostics(
+    line: usize,
+    input: &str,
+    severity: MathDiagnosticSeverity,
+) -> Vec<MathDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for &(name, _) in &[("sum", r"\sum"), ("prod", r"\prod")] {
+        let pattern = format!("{name}[");
+        let mut pos = 0;
+        while pos < input.len() {
+            let Some(call) = find_function_call(input, pos, &pattern, '[', ']') else {
+                break;
+            };
+            if following_math_body(input, call.next_pos).is_none() {
+                diagnostics.push(MathDiagnostic {
+                    line,
+                    severity,
+                    message: format!("indexed shorthand `{name}[...]` has no following body"),
+                });
+            }
+            pos = call.next_pos;
+        }
+    }
+    diagnostics
+}
+
+fn following_math_body(input: &str, pos: usize) -> Option<()> {
+    let rest = input[pos..].trim_start();
+    if rest.is_empty() || starts_with_any(rest, RELATION_TOKENS) {
+        None
+    } else {
+        Some(())
+    }
+}
+
+fn starts_with_any(input: &str, tokens: &[&str]) -> bool {
+    tokens.iter().any(|token| input.starts_with(token))
+}
+
+fn contains_unescaped_token(input: &str, token: &str) -> bool {
+    let mut pos = 0;
+    while let Some(relative) = input[pos..].find(token) {
+        let found = pos + relative;
+        if !is_escaped(input, found) {
+            return true;
+        }
+        pos = found + token.len();
+    }
+    false
+}
+
+fn ocr_diagnostics(segments: &[MathSegment], strict: bool) -> Vec<MathDiagnostic> {
+    let severity = if strict {
+        MathDiagnosticSeverity::Error
+    } else {
+        MathDiagnosticSeverity::Warning
+    };
+    let mut diagnostics = Vec::new();
+
+    for segment in segments {
+        for (needle, message) in [
+            (r"\lt", r"likely OCR token `\lt`; use `<` or explicit LaTeX"),
+            (r"\gt", r"likely OCR token `\gt`; use `>` or explicit LaTeX"),
+            ("If(", "likely OCR `If(`; check whether this should be `f(`"),
+            ("Jf", "likely OCR `Jf`; check whether this should be `f`"),
+            ("_ {", "split subscript `_ {`; remove the space"),
+        ] {
+            if segment.text.contains(needle) {
+                diagnostics.push(MathDiagnostic {
+                    line: segment.line,
+                    severity,
+                    message: message.to_string(),
+                });
+            }
+        }
+        for word in ["lne", "tne"] {
+            if contains_word(&segment.text, word) {
+                diagnostics.push(MathDiagnostic {
+                    line: segment.line,
+                    severity,
+                    message: format!("likely OCR token `{word}` in math"),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn contains_word(input: &str, word: &str) -> bool {
+    let mut pos = 0;
+    while let Some(relative) = input[pos..].find(word) {
+        let found = pos + relative;
+        let before = input[..found].chars().next_back();
+        let after = input[found + word.len()..].chars().next();
+        let word_boundary_before = before.is_none_or(|ch| !is_word_char(ch));
+        let word_boundary_after = after.is_none_or(|ch| !is_word_char(ch));
+        if word_boundary_before && word_boundary_after {
+            return true;
+        }
+        pos = found + word.len();
+    }
+    false
+}
+
+fn is_word_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn append_markdown_line(output: &mut String, line: &str) {
@@ -2579,11 +2981,54 @@ norm(v{x}) <= eps
 x = y
 :::"#,
             false,
+            false,
         );
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, 1);
+        assert_eq!(diagnostics[0].severity, MathDiagnosticSeverity::Error);
         assert!(diagnostics[0].message.contains("malformed"));
+    }
+
+    #[test]
+    fn check_math_markdown_reports_warnings_and_strict_errors() {
+        let markdown = r#"<!-- ssg-math-shorthand: on -->
+
+$norm(typo$
+
+:::math raw
+\lt + If(x) + a_ {n}
+:::
+"#;
+
+        let diagnostics = check_math_markdown(markdown, false, false);
+
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.severity
+            == MathDiagnosticSeverity::Warning
+            && diagnostic.message.contains("norm")));
+        assert!(diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains(r"\lt")));
+        assert!(diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("split subscript")));
+
+        let strict_diagnostics = check_math_markdown(markdown, false, true);
+        assert!(strict_diagnostics
+            .iter()
+            .any(
+                |diagnostic| diagnostic.severity == MathDiagnosticSeverity::Error
+                    && diagnostic.message.contains("norm")
+            ));
+    }
+
+    #[test]
+    fn check_math_markdown_reports_unmatched_dollars() {
+        let diagnostics = check_math_markdown("$x + y", false, false);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, MathDiagnosticSeverity::Error);
+        assert!(diagnostics[0].message.contains("unmatched inline"));
     }
 
     #[test]
