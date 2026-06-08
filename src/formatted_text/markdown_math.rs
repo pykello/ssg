@@ -1,5 +1,8 @@
 const PLACEHOLDER_PREFIX: &str = "MATHSEGMENTPLACEHOLDER";
 const DEFAULT_MATH_ROW_GAP: &str = "0.5em";
+const RAW_MATH_SENTINEL: &str = "SSG_RAW_MATH_BLOCK\n";
+const EXPAND_MATH_SENTINEL: &str = "SSG_EXPAND_MATH_BLOCK\n";
+const NO_SHORTHAND_MATH_SENTINEL: &str = "SSG_NO_SHORTHAND_MATH_BLOCK\n";
 
 type Replacement = (&'static str, &'static str);
 type WrappedFunction = (&'static str, &'static str, &'static str);
@@ -111,6 +114,7 @@ struct FunctionCall {
 enum MathBlockMode {
     Auto,
     Plain,
+    Raw,
     Align,
     System,
     Matrix,
@@ -121,6 +125,7 @@ struct MathBlockConfig {
     mode: MathBlockMode,
     tag: Option<String>,
     row_gap: Option<String>,
+    shorthand: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,23 +182,55 @@ impl<'a> MathProtector<'a> {
 
     fn protect(&mut self) {
         while self.pos < self.input.len() {
-            if self.at_line_start() && self.starts_code_fence_line() {
+            if self.at_line_start() && self.consume_math_sentinel(RAW_MATH_SENTINEL) {
+                if self.push_forced_segment(false, true) {
+                    continue;
+                }
+            } else if self.at_line_start() && self.consume_math_sentinel(EXPAND_MATH_SENTINEL) {
+                if self.push_forced_segment(true, false) {
+                    continue;
+                }
+            } else if self.at_line_start() && self.consume_math_sentinel(NO_SHORTHAND_MATH_SENTINEL)
+            {
+                if self.push_forced_segment(false, false) {
+                    continue;
+                }
+            } else if self.at_line_start() && self.starts_code_fence_line() {
                 self.push_code_fence_block();
                 continue;
             } else if self.starts_unescaped("$$") {
                 if let Some(end) = self.find_math_end("$$", self.pos + 2) {
-                    self.push_segment(end + 2);
+                    self.push_segment(end + 2, self.expand_shorthand, false);
                     continue;
                 }
             } else if self.starts_unescaped("$") {
                 if let Some(end) = self.find_math_end("$", self.pos + 1) {
-                    self.push_segment(end + 1);
+                    self.push_segment(end + 1, self.expand_shorthand, false);
                     continue;
                 }
             }
 
             self.push_next_char();
         }
+    }
+
+    fn consume_math_sentinel(&mut self, sentinel: &str) -> bool {
+        if self.input[self.pos..].starts_with(sentinel) {
+            self.pos += sentinel.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn push_forced_segment(&mut self, expand_shorthand: bool, raw: bool) -> bool {
+        if self.starts_unescaped("$$") {
+            if let Some(end) = self.find_math_end("$$", self.pos + 2) {
+                self.push_segment(end + 2, expand_shorthand, raw);
+                return true;
+            }
+        }
+        false
     }
 
     fn at_line_start(&self) -> bool {
@@ -260,8 +297,12 @@ impl<'a> MathProtector<'a> {
         None
     }
 
-    fn push_segment(&mut self, end: usize) {
-        let segment = normalize_math_segment(&self.input[self.pos..end], self.expand_shorthand);
+    fn push_segment(&mut self, end: usize, expand_shorthand: bool, raw: bool) {
+        let segment = if raw {
+            self.input[self.pos..end].to_string()
+        } else {
+            normalize_math_segment(&self.input[self.pos..end], expand_shorthand)
+        };
         let placeholder = placeholder(self.segments.len());
         self.output.push_str(&placeholder);
         self.segments.push(segment);
@@ -288,7 +329,15 @@ fn normalize_math_segment(segment: &str, expand_shorthand: bool) -> String {
     }
 }
 
-pub fn preprocess_math_shorthand_blocks(markdown: &str) -> String {
+pub fn math_shorthand_enabled(markdown: &str, default_enabled: bool) -> bool {
+    markdown
+        .lines()
+        .filter_map(parse_math_shorthand_pragma)
+        .last()
+        .unwrap_or(default_enabled)
+}
+
+pub fn preprocess_math_blocks(markdown: &str, default_expand_shorthand: bool) -> String {
     let mut output = String::with_capacity(markdown.len());
     let mut lines = markdown.lines();
     let mut in_fence = false;
@@ -297,10 +346,12 @@ pub fn preprocess_math_shorthand_blocks(markdown: &str) -> String {
         if is_fence_line(line) {
             in_fence = !in_fence;
             append_markdown_line(&mut output, line);
+        } else if !in_fence && parse_math_shorthand_pragma(line).is_some() {
+            continue;
         } else if !in_fence {
             if let Some(config) = parse_math_block(line) {
-                let body = collect_shorthand_block_body(&mut lines, &mut in_fence);
-                write_math_block(&mut output, &config, &body);
+                let body = collect_math_block_body(&mut lines, &mut in_fence, config.mode);
+                write_math_block(&mut output, &config, &body, default_expand_shorthand);
             } else {
                 append_markdown_line(&mut output, line);
             }
@@ -310,6 +361,23 @@ pub fn preprocess_math_shorthand_blocks(markdown: &str) -> String {
     }
 
     output
+}
+
+#[cfg(test)]
+fn preprocess_math_shorthand_blocks(markdown: &str) -> String {
+    preprocess_math_blocks(markdown, true)
+}
+
+fn parse_math_shorthand_pragma(line: &str) -> Option<bool> {
+    let trimmed = line.trim();
+    let value = trimmed.strip_prefix("<!-- ssg-math-shorthand:")?;
+    let value = value.strip_suffix("-->")?.trim();
+
+    match value {
+        "on" | "true" | "yes" => Some(true),
+        "off" | "false" | "no" => Some(false),
+        _ => None,
+    }
 }
 
 fn append_markdown_line(output: &mut String, line: &str) {
@@ -334,15 +402,22 @@ fn parse_math_block(line: &str) -> Option<MathBlockConfig> {
         mode: MathBlockMode::Auto,
         tag: None,
         row_gap: Some(DEFAULT_MATH_ROW_GAP.to_string()),
+        shorthand: None,
     };
 
     for token in args.split_whitespace() {
         match token {
             "auto" => config.mode = MathBlockMode::Auto,
             "plain" => config.mode = MathBlockMode::Plain,
+            "raw" => {
+                config.mode = MathBlockMode::Raw;
+                config.shorthand = Some(false);
+            }
             "align" => config.mode = MathBlockMode::Align,
             "system" => config.mode = MathBlockMode::System,
             "matrix" => config.mode = MathBlockMode::Matrix,
+            "shorthand" => config.shorthand = Some(true),
+            "no-shorthand" | "latex" => config.shorthand = Some(false),
             _ => {
                 if let Some(tag) = token.strip_prefix("tag=") {
                     config.tag = Some(tag.to_string());
@@ -366,9 +441,10 @@ fn parse_math_row_gap(value: &str) -> Option<Option<String>> {
     }
 }
 
-fn collect_shorthand_block_body<'a>(
+fn collect_math_block_body<'a>(
     lines: &mut impl Iterator<Item = &'a str>,
     in_fence: &mut bool,
+    mode: MathBlockMode,
 ) -> Vec<String> {
     let mut body = Vec::new();
 
@@ -381,7 +457,7 @@ fn collect_shorthand_block_body<'a>(
         if is_shorthand_block_close(trimmed) {
             break;
         }
-        if !trimmed.is_empty() {
+        if mode == MathBlockMode::Raw || !trimmed.is_empty() {
             body.push(body_line.trim_end().to_string());
         }
     }
@@ -393,7 +469,20 @@ fn is_shorthand_block_close(trimmed_line: &str) -> bool {
     trimmed_line == ":::" || trimmed_line == "::::"
 }
 
-fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[String]) {
+fn write_math_block(
+    output: &mut String,
+    config: &MathBlockConfig,
+    body: &[String],
+    default_expand_shorthand: bool,
+) {
+    let expand_shorthand = config.shorthand.unwrap_or(default_expand_shorthand);
+    if config.mode == MathBlockMode::Raw {
+        write_raw_math_block(output, body);
+        return;
+    }
+
+    push_math_sentinel(output, expand_shorthand, default_expand_shorthand);
+
     let body = normalize_math_block_rows(body, config.mode);
     let block_tag = config.tag.as_deref();
 
@@ -459,8 +548,25 @@ fn write_math_block(output: &mut String, config: &MathBlockConfig, body: &[Strin
                 write_plain_math_block(output, &rows.rows, rows.single_tag(block_tag));
             }
         }
-        MathBlockMode::System | MathBlockMode::Matrix => unreachable!("handled above"),
+        MathBlockMode::Raw | MathBlockMode::System | MathBlockMode::Matrix => {
+            unreachable!("handled above")
+        }
     }
+}
+
+fn push_math_sentinel(output: &mut String, expand_shorthand: bool, default_expand_shorthand: bool) {
+    if expand_shorthand && !default_expand_shorthand {
+        output.push_str(EXPAND_MATH_SENTINEL);
+    } else if !expand_shorthand && default_expand_shorthand {
+        output.push_str(NO_SHORTHAND_MATH_SENTINEL);
+    }
+}
+
+fn write_raw_math_block(output: &mut String, body: &[String]) {
+    output.push_str(RAW_MATH_SENTINEL);
+    output.push_str("$$\n");
+    output.push_str(&body.join("\n"));
+    output.push_str("\n$$\n");
 }
 
 fn normalize_math_block_rows(rows: &[String], mode: MathBlockMode) -> Vec<String> {
@@ -2395,6 +2501,22 @@ c = d
         );
 
         assert_eq!(markdown, "$$\na = b\nc = d\n$$\n");
+    }
+
+    #[test]
+    fn preprocesses_raw_math_blocks_with_sentinel() {
+        let markdown = preprocess_math_shorthand_blocks(
+            r#":::math raw
+\gamma + norm(v{x})
+
+\= \lt
+:::"#,
+        );
+
+        assert_eq!(
+            markdown,
+            "SSG_RAW_MATH_BLOCK\n$$\n\\gamma + norm(v{x})\n\n\\= \\lt\n$$\n"
+        );
     }
 
     #[test]

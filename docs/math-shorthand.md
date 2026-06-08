@@ -7,6 +7,13 @@ escape_markdown_in_math: false
 math_shorthand: true
 ```
 
+You can also opt in or out for one Markdown file:
+
+```text
+<!-- ssg-math-shorthand: on -->
+<!-- ssg-math-shorthand: off -->
+```
+
 Shorthand is expanded only inside `$...$`, `$$...$$`, and the shorthand math blocks
 below. Existing LaTeX remains valid.
 
@@ -152,7 +159,29 @@ $$
 ```
 
 Explicit `&` alignment markers are preserved. Use `:::math plain` to disable
-auto alignment, or `:::math align` to force an aligned block.
+auto alignment, or `:::math align` to force an aligned block. Add `shorthand`
+or `no-shorthand` to override the file/global shorthand setting for one block:
+
+```text
+:::math shorthand
+norm(v{x}) <= eps
+:::
+
+:::math no-shorthand
+\gamma + norm(v{x})
+:::
+```
+
+Use `:::math raw` for copied textbook LaTeX that should be preserved exactly
+inside the display math delimiters. Raw blocks skip shorthand expansion,
+Markdown-operator unescaping, and blockquote cleanup:
+
+```text
+:::math raw
+\gamma + norm(v{x})
+\= \lt
+:::
+```
 
 Generated row breaks in `:::math`, `:::math align`, and `:::math system` use
 `\\[0.5em]` by default, matching the spacing used by the notes before shorthand

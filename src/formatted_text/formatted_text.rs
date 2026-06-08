@@ -8,7 +8,7 @@ use super::{
     markdown_expandable::{
         preprocess_cards, preprocess_expandables, preprocess_figures, preprocess_semantic_cards,
     },
-    markdown_math::{preprocess_math_shorthand_blocks, protect_math, ProtectedMath},
+    markdown_math::{math_shorthand_enabled, preprocess_math_blocks, protect_math, ProtectedMath},
     pandoc_latex_filters::{EnvFilter, PandocFilter},
     shell::run_with_timeout,
 };
@@ -108,9 +108,10 @@ fn apply_latex_postprocessors(
 }
 
 fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
-    let markdown = preprocess_markdown(markdown, config);
+    let expand_math_shorthand = math_shorthand_enabled(markdown, config.math_shorthand);
+    let markdown = preprocess_markdown(markdown, expand_math_shorthand);
     reject_unprocessed_directives(&markdown)?;
-    let protected_math = protect_markdown_math(&markdown, config);
+    let protected_math = protect_markdown_math(&markdown, config, expand_math_shorthand);
     let markdown = protected_math
         .as_ref()
         .map_or(markdown.as_str(), |protected| protected.markdown());
@@ -124,12 +125,8 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     Ok(html)
 }
 
-fn preprocess_markdown(markdown: &str, config: &Config) -> String {
-    let markdown = if config.math_shorthand {
-        preprocess_math_shorthand_blocks(markdown)
-    } else {
-        markdown.to_string()
-    };
+fn preprocess_markdown(markdown: &str, expand_math_shorthand: bool) -> String {
+    let markdown = preprocess_math_blocks(markdown, expand_math_shorthand);
     let markdown = preprocess_figures(&markdown);
     let markdown = preprocess_semantic_cards(&markdown);
     let markdown = preprocess_cards(&markdown);
@@ -162,11 +159,15 @@ fn is_code_fence_line(line: &str) -> bool {
     line.starts_with("```") || line.starts_with("~~~")
 }
 
-fn protect_markdown_math(markdown: &str, config: &Config) -> Option<ProtectedMath> {
+fn protect_markdown_math(
+    markdown: &str,
+    config: &Config,
+    expand_math_shorthand: bool,
+) -> Option<ProtectedMath> {
     if config.escape_markdown_in_math {
         None
     } else {
-        Some(protect_math(markdown, config.math_shorthand))
+        Some(protect_math(markdown, expand_math_shorthand))
     }
 }
 
@@ -526,7 +527,7 @@ $$"#;
     }
 
     #[test]
-    fn test_unified_math_blocks_are_config_gated() {
+    fn test_unified_math_blocks_render_without_global_shorthand() {
         let mut config = get_test_config();
         config.escape_markdown_in_math = false;
         let input = r#":::math
@@ -534,9 +535,11 @@ v{x} = v{y}
 => norm(v{x}) <= eps
 :::"#;
 
-        let error = markdown_to_html(input, &config).unwrap_err();
-        assert!(error.contains("Unprocessed Markdown directive"));
-        assert!(error.contains(":::math"));
+        let output = markdown_to_html(input, &config).unwrap();
+        assert!(output.contains(r"\begin{aligned}"));
+        assert!(output.contains("v{x} &= v{y}"));
+        assert!(output.contains("&=> norm(v{x}) <= eps"));
+        assert!(!output.contains(":::math"));
 
         config.math_shorthand = true;
         let output = markdown_to_html(input, &config).unwrap();
@@ -545,6 +548,54 @@ v{x} = v{y}
         assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
         assert!(output.contains(r"&\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon"));
         assert!(!output.contains(":::math"));
+    }
+
+    #[test]
+    fn test_file_level_math_shorthand_opt_in() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+        let input = "<!-- ssg-math-shorthand: on -->\n$norm(v{x}) <= eps$";
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"$\left\lVert \mathbf{x} \right\rVert \le \epsilon$"));
+        assert!(!output.contains("ssg-math-shorthand"));
+    }
+
+    #[test]
+    fn test_math_block_shorthand_can_override_file_default() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+        let input = r#":::math shorthand
+norm(v{x}) <= eps
+:::
+
+:::math no-shorthand
+norm(v{x}) <= eps
+:::"#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"\left\lVert \mathbf{x} \right\rVert \le \epsilon"));
+        assert!(output.contains("norm(v{x}) <= eps"));
+    }
+
+    #[test]
+    fn test_raw_math_block_preserves_copied_latex() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+        config.math_shorthand = true;
+        let input = r#":::math raw
+\gamma + norm(v{x})
+\= \lt
+:::"#;
+
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"\gamma + norm(v{x})"));
+        assert!(output.contains(r"\= \lt"));
+        assert!(!output.contains(r"\left\lVert"));
+        assert!(!output.contains("SSG_RAW_MATH_BLOCK"));
     }
 
     #[test]
