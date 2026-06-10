@@ -105,18 +105,18 @@ fn write_learning_item(out: &mut String, config: &LearningItemConfig, body: &[St
         .as_deref()
         .map(|id| format!(r#" id="{}""#, escape_html_attr(id)))
         .unwrap_or_default();
+    let heading = learning_item_heading(&kind, &title);
 
     out.push_str(&format!(
         r#"<section{id_attr} class="learning-item learning-item--{status}" data-learning-type="{kind}" data-learning-status="{status}" data-learning-section="{section}">
-<div class="learning-item__header"><strong>{kind_label}: {title}</strong><span class="learning-status learning-status--{status}">{status_label}</span></div>
+<div class="learning-item__header"><strong>{heading}</strong><span class="learning-status learning-status--{status}">{status_label}</span></div>
 
 "#,
         id_attr = id_attr,
         status = escape_html_attr(&status),
         kind = escape_html_attr(&kind),
         section = escape_html_attr(section),
-        kind_label = escape_html(&title_case(&kind)),
-        title = escape_html(&title),
+        heading = escape_html(&heading),
         status_label = escape_html(&title_case(&status)),
     ));
 
@@ -125,6 +125,36 @@ fn write_learning_item(out: &mut String, config: &LearningItemConfig, body: &[St
     }
 
     out.push_str("\n</section>\n");
+}
+
+fn learning_item_heading(kind: &str, title: &str) -> String {
+    let kind_label = title_case(kind);
+    let labels: &[&str] = match kind {
+        "exercise" => &["Exercise"],
+        "theorem" => &["Theorem", "Proposition", "Lemma", "Corollary"],
+        _ => &[],
+    };
+
+    if title_starts_with_label(title, &kind_label)
+        || labels
+            .iter()
+            .any(|label| title_starts_with_label(title, label))
+    {
+        title.to_string()
+    } else {
+        format!("{kind_label}: {title}")
+    }
+}
+
+fn title_starts_with_label(title: &str, label: &str) -> bool {
+    let Some(rest) = title.trim_start().strip_prefix(label) else {
+        return false;
+    };
+    rest.is_empty()
+        || rest
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_whitespace() || matches!(ch, ':' | '.' | '('))
 }
 
 fn render_learning_progress(
@@ -594,6 +624,25 @@ True or false?
         let output = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
         assert!(output.contains(r#"data-learning-type="review_question""#));
         assert!(output.contains("Review Question: 1.1"));
+        Ok(())
+    }
+
+    #[test]
+    fn avoids_duplicate_learning_item_kind_label() -> Result<(), Box<dyn Error>> {
+        let input = r#":::learning-item type=exercise id=ex-1 section="Sheet 1" status=todo title="Exercise 3.2"
+Solve it.
+:::
+
+:::learning-item type=theorem id=prop-1 section="Sheet 1" status=todo title="Proposition 3.7"
+Prove it.
+:::
+"#;
+        let config = Config::default();
+        let output = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
+        assert!(output.contains("<strong>Exercise 3.2</strong>"));
+        assert!(output.contains("<strong>Proposition 3.7</strong>"));
+        assert!(!output.contains("Exercise: Exercise 3.2"));
+        assert!(!output.contains("Theorem: Proposition 3.7"));
         Ok(())
     }
 
