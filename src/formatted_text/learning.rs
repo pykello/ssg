@@ -636,13 +636,24 @@ Solve it.
 :::learning-item type=theorem id=prop-1 section="Sheet 1" status=todo title="Proposition 3.7"
 Prove it.
 :::
+
+:::learning-item type=theorem id=lemma-1 section="Sheet 1" status=todo title="Lemma 1.1.2"
+Prove it.
+:::
+
+:::learning-item type=theorem id=theorem-1 section="Sheet 1" status=todo title="3.1.2"
+Prove it.
+:::
 "#;
         let config = Config::default();
         let output = preprocess_learning_blocks(input, Path::new("/tmp/page.md"), &config)?;
         assert!(output.contains("<strong>Exercise 3.2</strong>"));
         assert!(output.contains("<strong>Proposition 3.7</strong>"));
+        assert!(output.contains("<strong>Lemma 1.1.2</strong>"));
+        assert!(output.contains("<strong>Theorem: 3.1.2</strong>"));
         assert!(!output.contains("Exercise: Exercise 3.2"));
         assert!(!output.contains("Theorem: Proposition 3.7"));
+        assert!(!output.contains("Theorem: Lemma 1.1.2"));
         Ok(())
     }
 
