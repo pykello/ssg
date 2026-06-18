@@ -340,7 +340,7 @@ pub fn math_shorthand_enabled(markdown: &str, default_enabled: bool) -> bool {
     markdown
         .lines()
         .filter_map(parse_math_shorthand_pragma)
-        .last()
+        .next_back()
         .unwrap_or(default_enabled)
 }
 

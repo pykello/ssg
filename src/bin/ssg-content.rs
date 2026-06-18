@@ -111,10 +111,7 @@ fn run(args: CliArgs) -> Result<(), Box<dyn std::error::Error>> {
 fn load_optional_config(
     config_path: Option<&Path>,
 ) -> Result<Option<config::Config>, Box<dyn std::error::Error>> {
-    config_path
-        .map(config::Config::load)
-        .transpose()
-        .map_err(Into::into)
+    config_path.map(config::Config::load).transpose()
 }
 
 fn check_math_path(
