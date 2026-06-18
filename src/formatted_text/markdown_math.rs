@@ -976,7 +976,11 @@ fn write_math_block(
         }
         MathBlockMode::Auto => {
             let rows = TaggedMathRows::extract(&merge_relation_rows(&body));
-            let (aligned_rows, should_align) = auto_align_rows(&rows.rows);
+            let (aligned_rows, should_align) = if contains_latex_environment(&rows.rows) {
+                (rows.rows.clone(), false)
+            } else {
+                auto_align_rows(&rows.rows)
+            };
             if should_align {
                 write_aligned_rows_with_tags(
                     output,
@@ -1092,6 +1096,10 @@ fn merged_relation_row(current: &str, rows: &[String], idx: usize) -> Option<(St
 fn is_relation_separator_row(row: &str) -> bool {
     let row = row.trim();
     RELATION_TOKENS.contains(&row) || RELATION_WORDS.contains(&row)
+}
+
+fn contains_latex_environment(rows: &[String]) -> bool {
+    rows.iter().any(|row| row.contains(r"\begin{"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1240,7 +1248,7 @@ fn push_optional_tag(output: &mut String, tag: Option<&str>) {
 }
 
 fn auto_align_rows(rows: &[String]) -> (Vec<String>, bool) {
-    let mut should_align = false;
+    let mut aligned_row_count = 0;
     let mut aligned_rows = Vec::with_capacity(rows.len());
     let mut idx = 0;
 
@@ -1253,19 +1261,23 @@ fn auto_align_rows(rows: &[String]) -> (Vec<String>, bool) {
             let relation_row = rows[idx + 1].trim_start();
             let (row, aligned) =
                 auto_align_row(&format!("{} {}", rows[idx].trim_end(), relation_row));
-            should_align |= aligned;
+            if aligned {
+                aligned_row_count += 1;
+            }
             aligned_rows.push(row);
             idx += 2;
             continue;
         }
 
         let (row, aligned) = auto_align_row(&rows[idx]);
-        should_align |= aligned;
+        if aligned {
+            aligned_row_count += 1;
+        }
         aligned_rows.push(row);
         idx += 1;
     }
 
-    let should_align = should_align && aligned_rows.len() > 1;
+    let should_align = aligned_row_count > 1;
     (aligned_rows, should_align)
 }
 
@@ -2724,6 +2736,54 @@ norm(v{a} - v{b})
             markdown,
             "$$\n\\begin{aligned}\nnorm(v{a} - v{b}) &<= norm(v{a} - v{x}) + norm(v{x} - v{b}) \\\\[0.5em]\n&< eps + eps \\\\[0.5em]\n&= 2eps\n\\end{aligned}\n$$\n"
         );
+    }
+
+    #[test]
+    fn preserves_multiline_latex_structures_without_auto_aligning() {
+        let set_builder = preprocess_math_shorthand_blocks(
+            r#":::math
+\mathcal{G}=
+\left\{
+\begin{pmatrix}
+1 & x & z\\
+0 & 1 & y\\
+0 & 0 & 1
+\end{pmatrix}
+\in\mathbb{R}^{3\times3}
+\ \middle|\ x,y,z\in\mathbb{R}
+\right\}.
+:::"#,
+        );
+
+        assert_eq!(
+            set_builder,
+            "$$\n\\mathcal{G}=\n\\left\\{\n\\begin{pmatrix}\n1 & x & z\\\\\n0 & 1 & y\\\\\n0 & 0 & 1\n\\end{pmatrix}\n\\in\\mathbb{R}^{3\\times3}\n\\ \\middle|\\ x,y,z\\in\\mathbb{R}\n\\right\\}.\n$$\n"
+        );
+
+        let product = preprocess_math_shorthand_blocks(
+            r#":::math
+\begin{pmatrix}
+1 & 2\\
+4 & 5\\
+7 & 8
+\end{pmatrix}
+\begin{pmatrix}
+1 & 1 & 0\\
+0 & 1 & 1\\
+1 & 0 & 1
+\end{pmatrix}.
+:::"#,
+        );
+
+        assert_eq!(
+            product,
+            "$$\n\\begin{pmatrix}\n1 & 2\\\\\n4 & 5\\\\\n7 & 8\n\\end{pmatrix}\n\\begin{pmatrix}\n1 & 1 & 0\\\\\n0 & 1 & 1\\\\\n1 & 0 & 1\n\\end{pmatrix}.\n$$\n"
+        );
+
+        assert!(!set_builder.contains(r"\begin{aligned}"));
+        assert!(!set_builder.contains(r"\\[0.5em]"));
+        assert!(!product.contains(r"\begin{aligned}"));
+        assert!(!product.contains(r"\\[0.5em]"));
     }
 
     #[test]
