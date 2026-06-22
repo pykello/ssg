@@ -146,6 +146,14 @@ impl ProtectedMath {
         }
         restored
     }
+
+    pub fn restore_html(&self, html: &str) -> String {
+        let mut restored = html.to_string();
+        for (idx, segment) in self.segments.iter().enumerate() {
+            restored = restored.replace(&placeholder(idx), &escape_html(segment));
+        }
+        restored
+    }
 }
 
 pub fn protect_math(markdown: &str, expand_shorthand: bool) -> ProtectedMath {
@@ -166,6 +174,21 @@ pub fn expand_math_markdown(markdown: &str, default_expand_shorthand: bool) -> S
 
 fn placeholder(index: usize) -> String {
     format!("{PLACEHOLDER_PREFIX}{index:06}")
+}
+
+fn escape_html(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 struct MathProtector<'a> {

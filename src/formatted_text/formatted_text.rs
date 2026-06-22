@@ -119,7 +119,7 @@ fn markdown_to_html(markdown: &str, config: &Config) -> Result<String, String> {
     let mut html = render_markdown_with_comrak(markdown, config);
 
     if let Some(protected_math) = protected_math {
-        html = protected_math.restore(&html);
+        html = protected_math.restore_html(&html);
     }
 
     Ok(html)
@@ -446,6 +446,32 @@ second line"
     }
 
     #[test]
+    fn test_math_html_escapes_raw_less_than_chain() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = r"$x_0=a<x_1<x_2<\cdots<x_{n-1}<x_n=b$";
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"$x_0=a&lt;x_1&lt;x_2&lt;\cdots&lt;x_{n-1}&lt;x_n=b$"));
+        assert!(!output.contains("<x_1"));
+        assert!(!output.contains("MATHSEGMENTPLACEHOLDER"));
+    }
+
+    #[test]
+    fn test_math_html_escapes_raw_ampersands() {
+        let mut config = get_test_config();
+        config.escape_markdown_in_math = false;
+
+        let input = r"$$\begin{aligned} a&=b \end{aligned}$$";
+        let output = markdown_to_html(input, &config).unwrap();
+
+        assert!(output.contains(r"a&amp;=b"));
+        assert!(!output.contains(r"a&=b"));
+        assert!(!output.contains("MATHSEGMENTPLACEHOLDER"));
+    }
+
+    #[test]
     fn test_math_placeholders_with_double_digits() {
         let mut config = get_test_config();
         config.escape_markdown_in_math = false;
@@ -518,7 +544,7 @@ $$"#;
 
         let output = markdown_to_html("$norm(v{x}) <= eps$", &config).unwrap();
 
-        assert!(output.contains("$norm(v{x}) <= eps$"));
+        assert!(output.contains("$norm(v{x}) &lt;= eps$"));
 
         config.math_shorthand = true;
         let output = markdown_to_html("$norm(v{x}) <= eps$", &config).unwrap();
@@ -537,16 +563,16 @@ v{x} = v{y}
 
         let output = markdown_to_html(input, &config).unwrap();
         assert!(output.contains(r"\begin{aligned}"));
-        assert!(output.contains("v{x} &= v{y}"));
-        assert!(output.contains("&=> norm(v{x}) <= eps"));
+        assert!(output.contains("v{x} &amp;= v{y}"));
+        assert!(output.contains("&amp;=&gt; norm(v{x}) &lt;= eps"));
         assert!(!output.contains(":::math"));
 
         config.math_shorthand = true;
         let output = markdown_to_html(input, &config).unwrap();
 
         assert!(output.contains(r"\begin{aligned}"));
-        assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
-        assert!(output.contains(r"&\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon"));
+        assert!(output.contains(r"\mathbf{x} &amp;= \mathbf{y}"));
+        assert!(output.contains(r"&amp;\implies \left\lVert \mathbf{x} \right\rVert \le \epsilon"));
         assert!(!output.contains(":::math"));
     }
 
@@ -577,7 +603,7 @@ norm(v{x}) <= eps
         let output = markdown_to_html(input, &config).unwrap();
 
         assert!(output.contains(r"\left\lVert \mathbf{x} \right\rVert \le \epsilon"));
-        assert!(output.contains("norm(v{x}) <= eps"));
+        assert!(output.contains("norm(v{x}) &lt;= eps"));
     }
 
     #[test]
@@ -634,8 +660,8 @@ Body
         let output = markdown_to_html("$abs(x) = cases(x | x >= 0; -x | x < 0)$", &config).unwrap();
 
         assert!(output.contains(r"\begin{cases}"));
-        assert!(output.contains(r"x & x \ge 0"));
-        assert!(output.contains(r"-x & x < 0"));
+        assert!(output.contains(r"x &amp; x \ge 0"));
+        assert!(output.contains(r"-x &amp; x &lt; 0"));
     }
 
     #[test]
@@ -656,7 +682,7 @@ v{x} = v{y}
 
         assert!(output.contains(r#"class="collapse""#));
         assert!(output.contains(r"\begin{aligned}"));
-        assert!(output.contains(r"\mathbf{x} &= \mathbf{y}"));
+        assert!(output.contains(r"\mathbf{x} &amp;= \mathbf{y}"));
         assert!(!output.contains(":::math"));
     }
 
