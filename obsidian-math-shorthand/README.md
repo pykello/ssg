@@ -34,6 +34,8 @@ Render the SSG math shorthand language in Obsidian without changing the Markdown
 
 When upgrading a manual installation, rebuild the plugin, replace both `main.js` and `manifest.json` in the vault plugin directory, and reload Obsidian. Merely rebuilding this source directory does not update the copy installed in a vault.
 
+If Obsidian shows **Failed to open** after an earlier plugin version was installed, replace both files with version 0.1.3 or newer and restart Obsidian. If necessary, temporarily disable or remove `.obsidian/plugins/math-shorthand` before reopening the vault, then reinstall the new build.
+
 ## Using the plugin
 
 Write shorthand inside ordinary Markdown math delimiters. For example:
