@@ -6,6 +6,7 @@ describe("SSG shorthand parity",()=>{it.each([
   ["x in bb{R}^n","x \\in \\mathbb{R}^n"],
   ["lim[x -> 0](f(x)) = 1","\\lim_{x \\to 0} f(x) = 1"],
   ["sum[i=1..n](a_i)","\\sum_{i=1}^{n} a_i"],
+  ["int[a..b](f(x), x)","\\int_{a}^{b} f(x)\\,dx"],
   ["set(v{x} in bb{R}^n | norm(v{x}) <= 1)","\\left\\{\\mathbf{x} \\in \\mathbb{R}^n \\;\\middle|\\; \\left\\lVert \\mathbf{x} \\right\\rVert \\le 1\\right\\}"],
   ["\\gamma + norm(v{x})","\\gamma + \\left\\lVert \\mathbf{x} \\right\\rVert"],
   ["\\text{alpha in beta}","\\text{alpha in beta}"],
