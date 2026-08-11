@@ -1,0 +1,5 @@
+import { finishRenderMath, MarkdownPostProcessorContext, renderMath } from "obsidian";
+import { expandMathShorthand } from "../shorthand/expand";
+import { mathShorthandEnabled, scanMathRanges } from "../shorthand/scanner";
+
+export function processMathShorthand(el:HTMLElement,ctx:MarkdownPostProcessorContext,enabled:boolean){const section=ctx.getSectionInfo(el);if(!section||!mathShorthandEnabled(section.text,enabled))return;const ranges=scanMathRanges(section.text);const nodes=Array.from(el.querySelectorAll<HTMLElement>(".math, mjx-container")).filter(node=>!node.closest(".math-shorthand-rendered"));let changed=false;for(let i=0;i<Math.min(ranges.length,nodes.length);i++){const range=ranges[i]!,node=nodes[i]!;const raw=section.text.slice(range.contentFrom,range.contentTo);const expanded=expandMathShorthand(raw);if(expanded===raw)continue;node.replaceWith(renderMath(expanded,range.display));changed=true;}if(changed)finishRenderMath();}
