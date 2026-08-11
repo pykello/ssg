@@ -1,6 +1,6 @@
 {
   "name": "obsidian-math-shorthand",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "scripts": {"build":"npm run check && node esbuild.config.mjs production","dev":"node esbuild.config.mjs","test":"vitest run","check":"tsc --noEmit"},
