@@ -1,0 +1,9 @@
+{
+  "id": "math-shorthand",
+  "name": "Math Shorthand",
+  "version": "0.1.3",
+  "minAppVersion": "1.5.0",
+  "description": "Render SSG math shorthand through Obsidian's MathJax without changing notes.",
+  "author": "pykello",
+  "isDesktopOnly": false
+}
