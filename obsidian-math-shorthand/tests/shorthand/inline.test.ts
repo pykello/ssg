@@ -2,6 +2,7 @@ import { describe,expect,it } from "vitest";
 import { expandMathShorthand } from "../../src/shorthand/expand";
 describe("SSG shorthand parity",()=>{it.each([
   ["v{x} + v{y}","\\mathbf{x} + \\mathbf{y}"],
+  ["eps","\\epsilon"],
   ["norm(v{x} - v{y}) <= eps","\\left\\lVert \\mathbf{x} - \\mathbf{y} \\right\\rVert \\le \\epsilon"],
   ["x in bb{R}^n","x \\in \\mathbb{R}^n"],
   ["lim[x -> 0](f(x)) = 1","\\lim_{x \\to 0} f(x) = 1"],

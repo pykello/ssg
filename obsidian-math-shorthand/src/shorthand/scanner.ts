@@ -32,3 +32,6 @@ export function scanMathRanges(source: string): MathRange[] {
 export function mathShorthandEnabled(source:string, fallback=true):boolean {
   let result=fallback; const re=/<!--\s*ssg-math-shorthand:\s*(on|off|true|false|yes|no)\s*-->/g; for(const m of source.matchAll(re)) result=/^(on|true|yes)$/.test(m[1]!); return result;
 }
+
+/** Extracts the inclusive line range represented by an Obsidian section. */
+export function sectionSource(text:string,lineStart:number,lineEnd:number):string {return text.split("\n").slice(lineStart,lineEnd+1).join("\n");}

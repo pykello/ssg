@@ -32,6 +32,8 @@ Render the SSG math shorthand language in Obsidian without changing the Markdown
 
 > Obsidian may require you to turn off Restricted Mode before locally installed community plugins can be enabled.
 
+When upgrading a manual installation, rebuild the plugin, replace both `main.js` and `manifest.json` in the vault plugin directory, and reload Obsidian. Merely rebuilding this source directory does not update the copy installed in a vault.
+
 ## Using the plugin
 
 Write shorthand inside ordinary Markdown math delimiters. For example:
